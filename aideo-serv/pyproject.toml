@@ -1,0 +1,33 @@
+[project]
+name = "aideo-serv"
+dynamic = ["version"]
+description = ""
+readme = "README.md"
+authors = [
+    { name = "lisoboss", email = "37949544+lisoboss@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+aideo-serv = "aideo_serv:main"
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.bandit]
+skips = ["B101"]
+exclude_dirs = [".venv", "venv", "tests"]
