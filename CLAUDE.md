@@ -1,61 +1,27 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Aideo — AI Video Generator Studio. uv workspace monorepo.
 
-## Project Overview
+## Packages
 
-Aideo — AI Video Generator Studio. Monorepo with two packages:
+- **packages/aideo-serv** — FastAPI backend (Python 3.12+)
+- **packages/aideo-cli** — Typer CLI client
+- **packages/aideo-inference** — LTX-2 inference service (`ltx2-service`)
+- **packages/aideo-ipad** — iPad client (excluded from workspace, not Python)
 
-- **aideo-serv** — Python backend/service (Python 3.12+, `aideo_serv` package)
-- **aideo-cli** — CLI client (not yet implemented)
-
-## Development Environment
-
-The Python project (`aideo-serv/`) uses `uv` for dependency management. A `.venv` is already created.
+## Quick Commands
 
 ```bash
-# Activate the virtual environment
-cd aideo-serv
-
-# Install dependencies (including dev)
-uv sync
-
-# Run the CLI entry point
-uv run aideo-serv
-
-# Add a dependency
-uv add <package>
-# Add a dev dependency
-uv add --dev <package>
+uv sync --all-packages                   # sync workspace
+uv run pytest                            # all tests (103)
+uv run --package aideo-serv pytest -v    # serv tests only
+uv run --package aideo-serv aideo-serv   # start API server
+uv run --package ltx2-service ltx2-server # start inference
+uv run --package aideo-cli aideo submit "prompt"  # CLI
+uv add --package aideo-serv <pkg>        # add dep
+uv add --dev <pkg>                       # add shared dev dep
 ```
 
-## Build, Test, Lint
+## Rules
 
-All commands run from `aideo-serv/`.
-
-```bash
-# Run all pre-commit checks
-pre-commit run --all-files
-```
-
-## Architecture
-
-### aideo-serv (`aideo-serv/src/aideo_serv/`)
-
-- **`__init__.py`** — Contains the `main()` entry point, registered as the `aideo-serv` console script. Currently a placeholder.
-- Tests live in `aideo-serv/tests/` (directory not yet created).
-- Version is derived from git tags via `hatch-vcs`.
-
-### Toolchain
-
-- **Build**: hatchling + hatch-vcs (PEP 621 pyproject.toml)
-- **Formatter**: black (line length 88)
-- **Import sorter**: isort (black profile)
-- **Linter**: flake8 + flake8-docstrings (E203 ignored for black compatibility)
-- **Type checker**: mypy
-- **Security**: bandit (B101/assert skipped)
-- **Tests**: pytest with asyncio_mode=auto, pytest-asyncio
-
-### Pre-commit Hooks
-
-Configured in `.pre-commit-config.yaml`: trailing-whitespace, end-of-file-fixer, check-yaml/toml/json, check-merge-conflict, check-added-large-files, debug-statements, check-docstring-first, black, isort, flake8, mypy, bandit, and pytest (runs full suite on commit).
+See `.claude/rules/` for detailed conventions and architecture.

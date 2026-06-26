@@ -1,0 +1,22 @@
+[project]
+name = "aideo-cli"
+version = "0.1.0"
+description = "Aideo — CLI client"
+readme = "README.md"
+authors = [
+    { name = "lisoboss", email = "37949544+lisoboss@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.16",
+    "httpx>=0.28",
+    "websockets>=16.0",
+    "rich>=15.0.0",
+]
+
+[project.scripts]
+aideo = "aideo_cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.24,<0.12"]
+build-backend = "uv_build"
