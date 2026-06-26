@@ -2,7 +2,6 @@
   "permissions": {
     "allow": [
       "Bash(uv add *)",
-      "Bash(uv remove *)",
       "Bash(uv run *)",
       "Bash(uv sync *)"
     ],
