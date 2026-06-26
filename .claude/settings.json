@@ -2,8 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(uv add *)",
+      "Bash(uv remove *)",
       "Bash(uv run *)",
       "Bash(uv sync *)"
+    ],
+    "deny": [
+      "Edit(*.pre-commit-config.yaml)",
+      "Edit(*pyproject.toml)",
+      "Write(*.pre-commit-config.yaml)",
+      "Write(*pyproject.toml)"
     ]
   }
 }
