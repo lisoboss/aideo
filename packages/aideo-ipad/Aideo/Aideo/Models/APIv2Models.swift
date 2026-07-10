@@ -259,7 +259,7 @@ struct TaskStatusPayload: Codable, Sendable {
     let task_id: String
     let output_node_id: String?
     let status: String
-    let timestamp: String
+    let timestamp: String?
 }
 
 struct TaskProgressPayload: Codable, Sendable {
@@ -267,15 +267,15 @@ struct TaskProgressPayload: Codable, Sendable {
     let output_node_id: String?
     let progress: Double
     let message: String?
-    let timestamp: String
+    let timestamp: String?
 }
 
 struct TaskPreviewPayload: Codable, Sendable {
     let task_id: String
     let output_node_id: String?
     let frame_url: String
-    let frame_index: Int
-    let timestamp: String
+    let frame_index: Int?   // 后端当前不下发；文档保留，客户端容忍缺失
+    let timestamp: String?
 }
 
 struct TaskCompletedPayload: Codable, Sendable {
@@ -284,26 +284,26 @@ struct TaskCompletedPayload: Codable, Sendable {
     let result_url: String?
     let result_data: [String: AnyCodable]?
     let previews: [String]
-    let timestamp: String
+    let timestamp: String?
 }
 
 struct TaskFailedPayload: Codable, Sendable {
     let task_id: String
     let output_node_id: String?
     let error_message: String?
-    let timestamp: String
+    let timestamp: String?
 }
 
 struct TaskCancelledPayload: Codable, Sendable {
     let task_id: String
     let output_node_id: String?
-    let timestamp: String
+    let timestamp: String?
 }
 
 struct ErrorPayload: Codable, Sendable {
     let code: String
     let message: String
-    let timestamp: String
+    let timestamp: String?
 }
 
 // MARK: - ProjectWSEvent (enum wrapper)

@@ -28,6 +28,8 @@ TASK_TO_PROVIDER: dict[str, tuple[str, str]] = {
     "speech_to_text": ("speech", "faster-whisper"),
     "text_conversation": ("chat", "stub"),
     "image_to_text": ("vision", "stub"),
+    "image_edit": ("image", "stub"),
+    "image_upscale": ("image", "stub"),
 }
 
 
@@ -105,7 +107,9 @@ class InferenceClient:
         logger.info("Inference request: POST %s (preempt=%s)", url, preempt)
 
         async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("POST", url, json=payload, headers=headers) as resp:
+            async with client.stream(
+                "POST", url, json=payload, headers=headers
+            ) as resp:
                 if resp.status_code != 200:
                     text = await resp.aread()
                     await callbacks.on_error(

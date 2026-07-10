@@ -24,7 +24,7 @@ POST /api/v1/{category}/{name}   ──→  ProviderManager  ──→  Provider
 
 4. **Memory preemption.** A request with `X-Memory-Preempt: true` header unloads ALL other models before loading its own. Fails if any provider is currently running. This lets heavy models (e.g. LTX-2 22B) take exclusive GPU memory when needed.
 
-5. **Category-based routing.** Endpoints follow `/api/v1/{category}/{name}`. Categories: `speech`, `video`, `chat`, `vision`. Each category has its own `PROVIDERS` registry and optional typed ABC subclass.
+5. **Category-based routing.** Endpoints follow `/api/v1/{category}/{name}`. Categories: `speech`, `video`, `chat`, `vision`, `image`. Each category has its own `PROVIDERS` registry and optional typed ABC subclass.
 
 6. **SSE for streaming.** Every inference run streams progress via Server-Sent Events. Yields `ProgressStatus` (progress %, message, optional result_data). Final result has `result_data` populated. No polling.
 
@@ -135,9 +135,13 @@ packages/aideo-runtime/src/aideo_runtime/
 │   ├── __init__.py
 │   ├── provider.py      # ChatProvider ABC
 │   └── stub.py
-└── vision/
+├── vision/
+│   ├── __init__.py
+│   ├── provider.py      # VisionProvider ABC
+│   └── stub.py
+└── image/
     ├── __init__.py
-    ├── provider.py      # VisionProvider ABC
+    ├── provider.py      # ImageProvider ABC (edit / upscale)
     └── stub.py
 ```
 

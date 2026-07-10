@@ -141,6 +141,27 @@ aideo-serv 内部去掉 WebSocket，改用 HTTP+SSE 调用 aideo-runtime。
 
 ---
 
+## iPad 契约对齐修复（backend → iPad 同步）
+
+WS→HTTP+SSE 重构属 **serv↔runtime 内部协议**，客户端 REST/WS 契约未变，故重构本身无需改 iPad。但对齐验证中发现 iPad 与后端**客户端契约**存在既有偏差，导致 iPad 实际无法解码后端响应，本次修复。
+
+### 修改文件
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `Services/APIClient.swift` | 修改 | +`makeDecoder()`/`parseBackendDate()`，配置 ISO8601 日期解码策略 |
+| `Models/APIv2Models.swift` | 修改 | WS 事件 payload 中后端不保证的字段改为可选 |
+
+### 变更要点
+
+- **日期解码（阻塞级）**：`JSONDecoder` 默认 `.deferredToDate` 期望数字时间戳，而后端 `TaskModel.created_at/updated_at` 为 ISO8601 字符串（生产带微秒 + `+00:00`）。此前任何含 `TaskModel` 的响应（`/generate`、项目任务列表）均解码失败。新增 `.custom` 策略，依次尝试 带小数秒 → 不带小数秒 → 裸时间（UTC）。仅 `TaskModel` 用 `Date`（`Project`/`Asset` 用 `String`，`CanvasProject` 为本地 SwiftData），影响面可控。
+- **`task.preview` 丢帧**：后端 `_broadcast` 只下发 `frame_url`，不含 `frame_index`，而 iPad `TaskPreviewPayload.frame_index` 为非可选 `Int` → 预览事件静默丢弃。改为 `Int?`；`CanvasViewModel` 本就不消费该字段。
+- **容忍未文档化字段**：API.md 未约定 `timestamp`（后端仅经 `WSEvent.model_dump()` 附带下发），7 个 payload 的 `timestamp` 一并改为可选，遵循"宽容读取"，防止后端 `WSEvent` 再次重构时二次破坏。
+- **`edit-image`/`upscale`**：iPad 调用 `/canvas/edit-image`、`/canvas/upscale`，后端尚未实现（协议前置声明，commit `ddab53d`），保持现状，客户端遇 404 优雅报错。
+- **验证**：`xcodebuild -scheme Aideo -destination 'generic/platform=iOS Simulator'` 构建通过（EXIT 0，仅遗留 `SpeechRecognizer.swift` 无关告警）。
+
+---
+
 ## 涉及文件总览
 
 ```

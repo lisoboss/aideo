@@ -16,11 +16,10 @@ import os
 import time
 
 import uvicorn
+from aideo_runtime.provider import BaseProvider, ProgressStatus
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.event_stream import EventSourceResponse
-
-from aideo_runtime.provider import BaseProvider, ProgressStatus
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Provider Manager — auto load / unload
 # ---------------------------------------------------------------------------
 
-CATEGORIES = ("speech", "video", "chat", "vision")
+CATEGORIES = ("speech", "video", "chat", "vision", "image")
 IDLE_TIMEOUT = float(os.environ.get("AIDEO_IDLE_TIMEOUT", "300"))
 
 
@@ -71,7 +70,9 @@ class ProviderManager:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def get_provider(self, category: str, name: str, **init_kwargs) -> BaseProvider:
+    async def get_provider(
+        self, category: str, name: str, **init_kwargs
+    ) -> BaseProvider:
         key = f"{category}/{name}"
         if key not in self._instances:
             provider_cls = self._discover_provider_cls(category, name)
@@ -92,7 +93,11 @@ class ProviderManager:
                     provider = self._instances.pop(key, None)
                     self._last_used.pop(key, None)
                     if provider is not None:
-                        logger.info("Unloading idle provider: %s (%.0fs idle)", key, now - last_used)
+                        logger.info(
+                            "Unloading idle provider: %s (%.0fs idle)",
+                            key,
+                            now - last_used,
+                        )
                         await provider.unload()
 
     # ------------------------------------------------------------------
@@ -149,17 +154,22 @@ _manager = ProviderManager()
 
 app = FastAPI(title="aideo-runtime", version="2.0.0")
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
 @app.on_event("startup")
 async def startup() -> None:
     # Pre-import categories so providers self-register
-    import aideo_runtime.speech  # noqa: F401
     import aideo_runtime.chat  # noqa: F401
+    import aideo_runtime.image  # noqa: F401
+    import aideo_runtime.speech  # noqa: F401
     import aideo_runtime.vision  # noqa: F401
+
     # video is lazy (torch import is heavy)
     asyncio.create_task(_manager.start_idle_sweeper())
     logger.info("aideo-runtime HTTP+SSE server started")
@@ -171,7 +181,9 @@ async def startup() -> None:
 
 
 @app.post("/api/v1/{category}/{provider_name}")
-async def run_provider(category: str, provider_name: str, request: Request) -> EventSourceResponse:
+async def run_provider(
+    category: str, provider_name: str, request: Request
+) -> EventSourceResponse:
     """Run inference on a provider, streaming progress via SSE.
 
     Header ``X-Memory-Preempt: true`` unloads ALL other models first,
@@ -179,11 +191,17 @@ async def run_provider(category: str, provider_name: str, request: Request) -> E
     currently running.
     """
     body = await request.json()
-    preempt = request.headers.get("X-Memory-Preempt", "").lower() in ("1", "true", "yes")
+    preempt = request.headers.get("X-Memory-Preempt", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     # Separate init kwargs from run kwargs
     init_keys = {"model_size_or_path", "device", "compute_type", "model_root"}
-    init_kwargs = {k: body.pop(k) for k in init_keys if k in body and body.get(k) is not None}
+    init_kwargs = {
+        k: body.pop(k) for k in init_keys if k in body and body.get(k) is not None
+    }
     run_kwargs = body
 
     provider_key = f"{category}/{provider_name}"
@@ -193,14 +211,17 @@ async def run_provider(category: str, provider_name: str, request: Request) -> E
         try:
             await _manager.preempt_all(for_key=provider_key)
         except RuntimeError as exc:
+
             async def error_stream():
                 yield {
                     "event": "error",
                     "data": ProgressStatus(
-                        progress=100.0, message=str(exc),
+                        progress=100.0,
+                        message=str(exc),
                         result_data={"error": "preempt_failed", "detail": str(exc)},
                     ).model_dump_json(),
                 }
+
             return EventSourceResponse(error_stream())
 
     provider = await _manager.get_provider(category, provider_name, **init_kwargs)

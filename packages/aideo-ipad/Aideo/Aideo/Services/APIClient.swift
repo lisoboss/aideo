@@ -35,7 +35,7 @@ actor APIClient {
         config.timeoutIntervalForResource = 120  // v2: 素材上传可能较大
         self.session = URLSession(configuration: config)
 
-        self.decoder = JSONDecoder()
+        self.decoder = APIClient.makeDecoder()
         self.encoder = JSONEncoder()
     }
 
@@ -274,7 +274,48 @@ actor APIClient {
 
     /// Nonisolated decode helper — avoids @MainActor inference for model types
     private nonisolated func decodeResponse<T: Decodable>(_ data: Data, as type: T.Type) throws -> T {
-        try JSONDecoder().decode(type, from: data)
+        try APIClient.makeDecoder().decode(type, from: data)
+    }
+
+    // MARK: - Decoder Factory
+
+    /// 构造带 ISO8601 日期策略的解码器。
+    ///
+    /// 后端 (`aideo-serv`) 将 `datetime` 序列化为 ISO8601 字符串
+    /// （生产环境带微秒 + `+00:00` 偏移，如 `2026-07-10T12:34:56.789012+00:00`）。
+    /// `JSONDecoder` 默认的 `.deferredToDate` 期望数字时间戳，无法解析字符串——
+    /// 若不设策略，任何含 `TaskModel`（`created_at`/`updated_at` 为 `Date`）的响应
+    /// 都会解码失败（如 `/generate`、项目任务列表）。
+    nonisolated static func makeDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { dec in
+            let container = try dec.singleValueContainer()
+            let str = try container.decode(String.self)
+            guard let date = parseBackendDate(str) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "无法解析后端日期格式: \(str)"
+                )
+            }
+            return date
+        }
+        return decoder
+    }
+
+    /// 依次尝试后端可能的 ISO8601 变体：带小数秒 → 不带小数秒 → 裸时间（假定 UTC）。
+    nonisolated static func parseBackendDate(_ s: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = iso.date(from: s) { return d }
+        iso.formatOptions = [.withInternetDateTime]
+        if let d = iso.date(from: s) { return d }
+
+        // 裸时间（无时区偏移，如单元测试 fixture "2026-06-26T12:00:00"），按 UTC 解析
+        let plain = DateFormatter()
+        plain.locale = Locale(identifier: "en_US_POSIX")
+        plain.timeZone = TimeZone(identifier: "UTC")
+        plain.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return plain.date(from: s)
     }
 
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {

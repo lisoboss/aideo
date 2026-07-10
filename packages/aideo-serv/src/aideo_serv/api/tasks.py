@@ -35,6 +35,8 @@ _SERVICE_FOR_TASK_TYPE: dict[str, str] = {
     "speech_to_text": "aideo-runtime",
     "text_conversation": "aideo-runtime",
     "image_to_text": "aideo-runtime",
+    "image_edit": "aideo-runtime",
+    "image_upscale": "aideo-runtime",
 }
 
 
@@ -130,7 +132,11 @@ async def create_task(
     )
     asyncio.create_task(
         _submit_to_inference(
-            task.id, task.prompt, task.params, task.task_type, task.input_files,
+            task.id,
+            task.prompt,
+            task.params,
+            task.task_type,
+            task.input_files,
         )
     )
     return task
@@ -159,9 +165,7 @@ async def get_task(
     except LookupError:
         raise HTTPException(
             status_code=404,
-            detail=error_response(
-                "RESOURCE_NOT_FOUND", f"Task {task_id} not found"
-            )[0],
+            detail=error_response("RESOURCE_NOT_FOUND", f"Task {task_id} not found")[0],
         )
 
 
@@ -176,9 +180,7 @@ async def cancel_task(
     except LookupError:
         raise HTTPException(
             status_code=404,
-            detail=error_response(
-                "RESOURCE_NOT_FOUND", f"Task {task_id} not found"
-            )[0],
+            detail=error_response("RESOURCE_NOT_FOUND", f"Task {task_id} not found")[0],
         )
 
     # Runtime called via HTTP+SSE — cancel by client disconnect / timeout

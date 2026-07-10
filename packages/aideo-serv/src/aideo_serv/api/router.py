@@ -5,6 +5,7 @@ import logging
 from aideo_serv.api.ai import ai_router
 from aideo_serv.api.assets import assets_router
 from aideo_serv.api.canvas_assist import canvas_router
+from aideo_serv.api.canvas_image import image_router
 from aideo_serv.api.generate import generate_router
 from aideo_serv.api.projects import projects_router
 from aideo_serv.api.results import results_router
@@ -66,4 +67,5 @@ router.include_router(projects_router)
 router.include_router(assets_router)
 router.include_router(generate_router)
 router.include_router(canvas_router)
+router.include_router(image_router)
 router.include_router(ai_router)
