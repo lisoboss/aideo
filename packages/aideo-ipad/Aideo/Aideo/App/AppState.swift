@@ -34,6 +34,9 @@ final class AppState {
     /// 连接失败次数
     var consecutiveFailures: Int = 0
 
+    /// v2: 当前云端项目 ID，用于项目级 WS 和同步
+    var currentProjectId: UUID?
+
     /// 私有轮询 Task
     private var monitorTask: Task<Void, Never>?
 

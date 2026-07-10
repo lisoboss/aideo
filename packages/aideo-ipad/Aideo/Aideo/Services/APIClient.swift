@@ -20,21 +20,23 @@ enum APIClientError: LocalizedError {
 
 // MARK: - Client
 
-/// REST API 客户端 — 封装 aideo-serv 全部接口
+/// REST API 客户端 — 封装 aideo-serv 全部接口 (v1 + v2)
 actor APIClient {
     let baseURL: String
     private let session: URLSession
     private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
 
     init(baseURL: String) {
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
+        config.timeoutIntervalForResource = 120  // v2: 素材上传可能较大
         self.session = URLSession(configuration: config)
 
         self.decoder = JSONDecoder()
+        self.encoder = JSONEncoder()
     }
 
     // MARK: - Health
@@ -48,46 +50,96 @@ actor APIClient {
         }
     }
 
-    // MARK: - Tasks
+    // MARK: - Generate (v2 结构化画布提交)
 
-    func createTask(prompt: String, params: GenerationParams? = nil, extraParams: [String: Any] = [:]) async throws -> TaskModel {
-        var body: [String: Any] = ["prompt": prompt]
-        var mergedParams: [String: Any] = params?.asDictionary() ?? [:]
-        for (k, v) in extraParams { mergedParams[k] = v }
-        if !mergedParams.isEmpty { body["params"] = mergedParams }
-        return try await post("/api/v1/tasks", body: body)
+    /// 结构化画布提交 — 发送完整 subgraph 结构，后端负责序列化
+    func generate(request: GenerateRequest) async throws -> GenerateResponse {
+        let body = try encoder.asDictionary(request)
+        return try await post("/api/v1/generate", body: body)
     }
 
-    func listTasks(status: TaskStatus? = nil, offset: Int = 0, limit: Int = 20) async throws -> TaskListResponse {
+    // MARK: - Projects (v2)
+
+    func createProject(name: String, canvasData: CanvasData? = nil, metadata: [String: Any]? = nil) async throws -> Project {
+        var body: [String: Any] = ["name": name]
+        if let canvasData { body["canvas_data"] = try encoder.asDictionary(canvasData) }
+        if let metadata { body["metadata"] = metadata }
+        return try await post("/api/v1/projects", body: body)
+    }
+
+    func listProjects(offset: Int = 0, limit: Int = 20) async throws -> ProjectListResponse {
+        try await get("/api/v1/projects?offset=\(offset)&limit=\(limit)")
+    }
+
+    func getProject(id: UUID) async throws -> Project {
+        try await get("/api/v1/projects/\(id.uuidString)")
+    }
+
+    func updateProject(id: UUID, name: String? = nil, canvasData: CanvasData? = nil, metadata: [String: Any]? = nil) async throws -> Project {
+        var body: [String: Any] = [:]
+        if let name { body["name"] = name }
+        if let canvasData { body["canvas_data"] = try encoder.asDictionary(canvasData) }
+        if let metadata { body["metadata"] = metadata }
+        return try await patch("/api/v1/projects/\(id.uuidString)", body: body)
+    }
+
+    func deleteProject(id: UUID) async throws {
+        let _: EmptyResponse = try await delete("/api/v1/projects/\(id.uuidString)")
+    }
+
+    func listProjectTasks(projectId: UUID, status: TaskStatus? = nil, offset: Int = 0, limit: Int = 20) async throws -> TaskListResponse {
         var query = "?offset=\(offset)&limit=\(limit)"
-        if let status {
-            query += "&status=\(status.rawValue)"
-        }
-        return try await get("/api/v1/tasks\(query)")
+        if let status { query += "&status=\(status.rawValue)" }
+        return try await get("/api/v1/projects/\(projectId.uuidString)/tasks\(query)")
     }
 
-    func getTask(id: UUID) async throws -> TaskModel {
-        try await get("/api/v1/tasks/\(id.uuidString)")
+    func listProjectAssets(projectId: UUID, mediaType: String? = nil, offset: Int = 0, limit: Int = 20) async throws -> AssetListResponse {
+        var query = "?offset=\(offset)&limit=\(limit)"
+        if let mediaType { query += "&media_type=\(mediaType)" }
+        return try await get("/api/v1/projects/\(projectId.uuidString)/assets\(query)")
     }
 
-    func cancelTask(id: UUID) async throws -> TaskModel {
-        try await delete("/api/v1/tasks/\(id.uuidString)")
+    // MARK: - Assets (v2)
+
+    /// 上传素材文件。返回 Asset 含 asset_id 供 generate 引用。
+    func uploadAsset(fileURL: URL, projectId: UUID? = nil, mediaType: String? = nil) async throws -> Asset {
+        var fields: [String: String] = [:]
+        if let pid = projectId { fields["project_id"] = pid.uuidString }
+        if let mt = mediaType { fields["media_type"] = mt }
+        return try await upload("/api/v1/assets", fileURL: fileURL, fields: fields)
     }
 
-    // MARK: - Assist
+    func getAsset(id: String) async throws -> Asset {
+        try await get("/api/v1/assets/\(id)")
+    }
 
+    nonisolated func assetDownloadURL(id: String) -> URL {
+        URL(string: "\(baseURL)/api/v1/assets/\(id)/download")!
+    }
+
+    func deleteAsset(id: String) async throws {
+        let _: EmptyResponse = try await delete("/api/v1/assets/\(id)")
+    }
+
+    // MARK: - Canvas Assist (v2)
+
+    /// 自由文本 → 类型化 PromptBlock 数组
     func structurize(description: String) async throws -> StructurizeResponse {
-        try await post("/api/v1/assist/structure", body: ["description": description])
+        try await post("/api/v1/canvas/structure", body: ["description": description])
     }
 
-    func complete(context: String, mode: String = "suggestion") async throws -> CompletionResponse {
-        try await post("/api/v1/assist/complete", body: ["context": context, "mode": mode])
+    /// 上下文补全 — 返回结构化建议组
+    func complete(context: String, mode: String = "suggestion", existingBlocks: [PromptBlockDTO]? = nil) async throws -> CompletionResponse {
+        var body: [String: Any] = ["context": context, "mode": mode]
+        if let blocks = existingBlocks { body["existing_blocks"] = try encoder.asDictionary(blocks) }
+        return try await post("/api/v1/canvas/complete", body: body)
     }
 
+    /// 主题灵感 — 返回含 blocks 的主题列表
     func inspire(theme: String? = nil) async throws -> InspireResponse {
         var body: [String: Any] = [:]
         if let theme { body["theme"] = theme }
-        return try await post("/api/v1/assist/inspire", body: body)
+        return try await post("/api/v1/canvas/inspire", body: body)
     }
 
     // MARK: - Results
@@ -118,11 +170,74 @@ actor APIClient {
         return try await perform(request)
     }
 
+    private func patch<T: Decodable>(_ path: String, body: [String: Any]) async throws -> T {
+        let url = URL(string: "\(baseURL)\(path)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return try await perform(request)
+    }
+
     private func delete<T: Decodable>(_ path: String) async throws -> T {
         let url = URL(string: "\(baseURL)\(path)")!
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         return try await perform(request)
+    }
+
+    /// Multipart 文件上传
+    private func upload<T: Decodable>(_ path: String, fileURL: URL, fields: [String: String]) async throws -> T {
+        let url = URL(string: "\(baseURL)\(path)")!
+        let boundary = UUID().uuidString
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        request.httpBody = try buildMultipartBody(fileURL: fileURL, fields: fields, boundary: boundary)
+        // 上传使用更长超时
+        request.timeoutInterval = 120
+
+        return try await perform(request)
+    }
+
+    private func buildMultipartBody(fileURL: URL, fields: [String: String], boundary: String) throws -> Data {
+        var body = Data()
+        let filename = fileURL.lastPathComponent
+        let mimeType = mimeTypeFor(fileURL)
+
+        // 文本字段
+        for (key, value) in fields {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+
+        // 文件字段
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+
+        let fileData = try Data(contentsOf: fileURL)
+        body.append(fileData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        return body
+    }
+
+    private func mimeTypeFor(_ url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "jpg", "jpeg": return "image/jpeg"
+        case "png": return "image/png"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        case "mp4": return "video/mp4"
+        case "mov": return "video/quicktime"
+        case "wav": return "audio/wav"
+        default: return "application/octet-stream"
+        }
     }
 
     /// Nonisolated decode helper — avoids @MainActor inference for model types
@@ -138,10 +253,44 @@ actor APIClient {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            let message = (try? JSONDecoder().decode([String: String].self, from: data))?["detail"] ?? ""
-            throw APIClientError.requestFailed(statusCode: httpResponse.statusCode, message: message)
+            // Try v2 error format first, then v1
+            let v2Msg = (try? JSONDecoder().decode(ErrorResponse.self, from: data))?.error.message
+            let v1Msg = (try? JSONDecoder().decode([String: String].self, from: data))?["detail"]
+            throw APIClientError.requestFailed(statusCode: httpResponse.statusCode, message: v2Msg ?? v1Msg ?? "")
+        }
+
+        // Handle 204 No Content
+        if T.self == EmptyResponse.self, data.isEmpty {
+            return EmptyResponse() as! T
         }
 
         return try decodeResponse(data, as: T.self)
+    }
+}
+
+// MARK: - Private Helpers
+
+private struct ErrorResponse: Codable {
+    struct ErrorBody: Codable {
+        let code: String
+        let message: String
+    }
+    let error: ErrorBody
+}
+
+/// 空响应体 — 用于 204 / void 返回
+private struct EmptyResponse: Codable {}
+
+// MARK: - JSONEncoder extension
+
+private extension JSONEncoder {
+    func asDictionary<T: Encodable>(_ value: T) throws -> [String: Any] {
+        let data = try encode(value)
+        let obj = try JSONSerialization.jsonObject(with: data)
+        guard let dict = obj as? [String: Any] else {
+            throw APIClientError.decodingFailed(NSError(domain: "APIClient", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Encoded value is not a dictionary"]))
+        }
+        return dict
     }
 }

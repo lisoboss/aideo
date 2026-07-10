@@ -23,8 +23,6 @@ Authorization: Bearer <token>
 
 响应：`{ "items": [...], "total": 42, "offset": 0, "limit": 20 }`
 
-> v1 兼容：`GET /tasks` 保留 `tasks` key（非 `items`）。新端点全用 `items`。
-
 ## 错误格式
 
 ```json
@@ -107,27 +105,25 @@ Authorization: Bearer <token>
 
 ### GenerationTask
 
-Task 模型扩展三个字段（`project_id`、`output_node_id`、`prompt_structured`），其余继承 v1：
-
-| 字段 | 类型 | 新增? | 说明 |
-|---|---|---|---|
-| `id` | UUID | — | 任务 ID |
-| `project_id` | UUID \| null | **NEW** | 所属项目 |
-| `output_node_id` | UUID \| null | **NEW** | 触发的画布输出节点 |
-| `prompt` | string | — | 扁平化 prompt（向后兼容） |
-| `prompt_structured` | object \| null | **NEW** | 结构化提交快照（调试/重新生成） |
-| `params` | object \| null | — | 生成参数 |
-| `task_type` | string | — | `video_generation` \| `speech_to_text` \| ... |
-| `status` | enum | — | `queued` → `running` → `generating` → `completed` / `failed` / `cancelled` |
-| `progress` | float | — | 0.0 – 100.0 |
-| `created_at` | datetime | — | |
-| `updated_at` | datetime | — | |
-| `result_path` | string \| null | — | 服务端文件路径 |
-| `result_url` | string \| null | — | 下载 URL |
-| `result_data` | object \| null | — | 内联结果（如转录 JSON） |
-| `previews` | string[] | — | 预览帧 URL 列表 |
-| `error_message` | string \| null | — | 失败原因 |
-| `input_files` | array \| null | — | 输入文件引用 |
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | UUID | 任务 ID |
+| `project_id` | UUID \| null | 所属项目 |
+| `output_node_id` | UUID \| null | 触发的画布输出节点 |
+| `prompt` | string | 序列化后的 prompt |
+| `prompt_structured` | object \| null | 结构化提交快照（调试/重新生成） |
+| `params` | object \| null | 生成参数 |
+| `task_type` | string | `video_generation` \| `speech_to_text` \| ... |
+| `status` | enum | `queued` → `running` → `generating` → `completed` / `failed` / `cancelled` |
+| `progress` | float | 0.0 – 100.0 |
+| `created_at` | datetime | |
+| `updated_at` | datetime | |
+| `result_path` | string \| null | 服务端文件路径 |
+| `result_url` | string \| null | 下载 URL |
+| `result_data` | object \| null | 内联结果（如转录 JSON） |
+| `previews` | string[] | 预览帧 URL 列表 |
+| `error_message` | string \| null | 失败原因 |
+| `input_files` | array \| null | 输入文件引用 |
 
 ### Project
 
@@ -187,11 +183,9 @@ GET /health
 → { "status": "ok", "version": "2.0.0", "services": { "inference": "connected", "storage": "ok" } }
 ```
 
-新增 `version` 和 `services` 状态，供 iPad 健康监控。
-
 ---
 
-### 项目（NEW）
+### 项目
 
 ```
 POST   /projects                        创建项目
@@ -207,7 +201,7 @@ GET    /projects/{id}/assets            项目素材列表（offset/limit + medi
 
 ---
 
-### 素材（NEW）
+### 素材
 
 ```
 POST   /assets                          上传 → 201。multipart/form-data
@@ -222,7 +216,7 @@ DELETE /assets/{id}                     删除文件 → 204
 
 ---
 
-### 生成 — 结构化画布提交（NEW）
+### 生成 — 结构化画布提交
 
 ```
 POST /generate
@@ -275,28 +269,17 @@ POST /generate
 
 **后端行为**：
 1. 按 `scene_tag` 分组 → 多场景提示词结构
-2. 用 block type 做分区头（比 `[Type]: text` 更丰富）
-3. `asset_id` → 文件路径（不再 base64 解码）
+2. 用 block type 做分区头
+3. `asset_id` → 文件路径
 4. task 上写 `prompt_structured`（调试/重新生成用）
 5. 设置 `project_id` 和 `output_node_id`
 6. 创建任务 → 提交推理 → 返回 task_id 供 WS 订阅
 
 ---
 
-### 任务（v1 保留 + 扩展）
+### Canvas Assist
 
-```
-POST   /tasks                           扁平 prompt（向后兼容, CLI/测试用）
-GET    /tasks                           列表（status/offset/limit，+project_id filter）
-GET    /tasks/{id}                      详情（响应含 project_id/output_node_id/prompt_structured）
-DELETE /tasks/{id}                      取消 → 200。终态任务返回 409
-```
-
----
-
-### Canvas Assist（NEW — 重新设计）
-
-三个端点都返回 `PromptBlock` 结构，iPad 建好卡片直接落画布。
+三个端点都返回结构化 `PromptBlock`，iPad 建好卡片直接落画布。
 
 #### `POST /canvas/structure` — 自由文本 → 类型化 PromptBlock
 
@@ -369,7 +352,7 @@ mode = `"completion"`（补缺类型）或 `"suggestion"`（提供替代）
 
 ---
 
-### 结果（不变）
+### 结果
 
 ```
 GET /results/{task_id}/download      → video/mp4 或 JSON
@@ -380,7 +363,7 @@ GET /results/{task_id}/preview/{frame} → image/jpeg
 
 ## WebSocket 端点
 
-### `WS /ws/projects/{project_id}`（NEW — 项目级多路复用）
+### `WS /ws/projects/{project_id}` — 项目级多路复用
 
 单连接承载项目内所有任务事件。
 
@@ -405,11 +388,7 @@ GET /results/{task_id}/preview/{frame} → image/jpeg
 
 Close codes：4004=项目不存在, 4005=未授权（未来）
 
-### `WS /ws/tasks/{task_id}`（v1 保留）
-
-向后兼容。新增 `event` discriminator（旧 `{type, data}` 格式迁移期间并行提供）。
-
-### `WS /ws/transcribe`（不变）
+### `WS /ws/transcribe` — 流式语音转写
 
 流式语音转写。二进制音频入，JSON 事件出。
 
@@ -427,35 +406,27 @@ WS   /ws/internal/inference        推理服务注册 + 消息路由
 ## API 总结
 
 ```
-新增（16个端点 + 1个WS）                   保留（不变）
-─────────────────────────               ─────────────────
-POST   /projects                       GET    /health
-GET    /projects                       POST   /tasks
-GET    /projects/{id}                  GET    /tasks
-PATCH  /projects/{id}                  GET    /tasks/{id}
-DELETE /projects/{id}                  DELETE /tasks/{id}
-GET    /projects/{id}/tasks            WS     /ws/tasks/{id}
-GET    /projects/{id}/assets           WS     /ws/transcribe
-POST   /assets                         GET    /results/{id}/download
-GET    /assets/{id}                    GET    /results/{id}/preview/{frame}
-GET    /assets/{id}/download           POST   /internal/callback
-DELETE /assets/{id}                    WS     /ws/internal/inference
+REST (17)                                WebSocket (2)
+──────────                               ────────────
+GET    /health                           WS  /ws/projects/{id}
+POST   /projects                         WS  /ws/transcribe
+GET    /projects
+GET    /projects/{id}                    内部
+PATCH  /projects/{id}                    ────
+DELETE /projects/{id}                    POST /internal/callback
+GET    /projects/{id}/tasks              WS  /ws/internal/inference
+GET    /projects/{id}/assets
+POST   /assets
+GET    /assets/{id}
+GET    /assets/{id}/download
+DELETE /assets/{id}
 POST   /generate
 POST   /canvas/structure
 POST   /canvas/complete
 POST   /canvas/inspire
-WS     /ws/projects/{id}
+GET    /results/{id}/download
+GET    /results/{id}/preview/{frame}
 ```
-
-## 关键设计变更
-
-| 旧模式 | 新模式 | 收益 |
-|---|---|---|
-| base64 图片进 JSON | asset_id 引用 | 33% 体积省了，可去重 |
-| 每输出节点独立 WS | 单项目 WS 多路复用 | N→1 连接 |
-| 泛型 `{type, data}` 事件 | 类型化 `task.progress` 等 | 编译期安全，消灭 AnyCodable |
-| 客户端 PromptSerializer | 后端结构化序列化 | 后端持有 prompt 格式 |
-| 客户端 BFS + base64 编码 | 客户端发子图结构，后端解析资产 | 职责分离 |
 
 ## 状态机
 
@@ -468,12 +439,3 @@ queued ──→ running ──→ generating ──→ completed
 ```
 
 终态：`completed`、`failed`、`cancelled`。
-
-## iPad 迁移路径
-
-1. `POST /tasks` → `POST /generate`（结构化提交）
-2. base64 → `POST /assets` + asset_id 引用
-3. `ws/tasks/{id}` → `ws/projects/{id}`
-4. 本地 SwiftData → Project CRUD 云端同步
-5. 硬编码 fallback → `/canvas/*` 端点
-6. 移除 `PromptSerializer.swift` + `AnyCodable`
