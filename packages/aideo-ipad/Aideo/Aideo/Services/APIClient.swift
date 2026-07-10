@@ -116,6 +116,16 @@ actor APIClient {
         let _: EmptyResponse = try await delete("/api/v1/assets/\(id)")
     }
 
+    // MARK: - Transcript Correction (v2)
+
+    /// 智能纠错 + 繁简转换
+    func correctTranscript(text: String, language: String? = nil, aiProvider: String? = nil) async throws -> CorrectResponse {
+        var body: [String: Any] = ["text": text]
+        if let lang = language { body["language"] = lang }
+        if let provider = aiProvider { body["ai_provider"] = provider }
+        return try await post("/api/v1/canvas/correct", body: body)
+    }
+
     // MARK: - Canvas Assist (v2)
 
     /// 自由文本 → 类型化 PromptBlock 数组

@@ -166,6 +166,18 @@ struct HealthInfo: Codable, Sendable {
     let services: [String: String]?
 }
 
+// MARK: - Transcript Correction
+
+struct CorrectRequest: Codable, Sendable {
+    let text: String
+    let language: String?
+    let ai_provider: String?
+}
+
+struct CorrectResponse: Codable, Sendable {
+    let corrected: String
+}
+
 // MARK: - AI Providers
 
 struct AIProvider: Codable, Sendable {

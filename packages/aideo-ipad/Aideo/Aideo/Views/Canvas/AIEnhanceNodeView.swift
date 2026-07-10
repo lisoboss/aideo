@@ -151,6 +151,7 @@ struct AIEnhanceNodeView: View {
 
     // MARK: - Voice Input
 
+    @MainActor
     private func handleVoiceInput() {
         guard !isRecording else {
             Task { await appState.speechRecognizer.stopRecording() }
@@ -164,20 +165,20 @@ struct AIEnhanceNodeView: View {
             do {
                 let stream = try await appState.speechRecognizer.startRecording()
                 for await event in stream {
-                    await MainActor.run {
-                        switch event {
-                        case .transcribing:
-                            isRecording = false
-                            isTranscribing = true
-                        case .result(let text):
-                            if inputText.isEmpty { inputText = text }
-                            else { inputText += " " + text }
-                            isRecording = false
-                            isTranscribing = false
-                        case .error:
-                            isRecording = false
-                            isTranscribing = false
-                        }
+                    switch event {
+                    case .transcribing:
+                        isRecording = false
+                        isTranscribing = true
+                    case .result(let text):
+                        let corrected = await TranscriptPostProcessor.process(
+                            text: text, language: appState.language, client: appState.apiClient)
+                        if inputText.isEmpty { inputText = corrected }
+                        else { inputText += " " + corrected }
+                        isRecording = false
+                        isTranscribing = false
+                    case .error:
+                        isRecording = false
+                        isTranscribing = false
                     }
                 }
             } catch {

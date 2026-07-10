@@ -126,20 +126,20 @@ struct CardEditorView: View {
                 do {
                     let stream = try await appState.speechRecognizer.startRecording()
                     for await event in stream {
-                        await MainActor.run {
-                            switch event {
-                            case .transcribing:
-                                isRecording = false
-                                isTranscribing = true
-                            case .result(let text):
-                                if block.content.isEmpty { block.content = text }
-                                else { block.content += "\n" + text }
-                                isRecording = false
-                                isTranscribing = false
-                            case .error:
-                                isRecording = false
-                                isTranscribing = false
-                            }
+                        switch event {
+                        case .transcribing:
+                            isRecording = false
+                            isTranscribing = true
+                        case .result(let text):
+                            let corrected = await TranscriptPostProcessor.process(
+                                text: text, language: appState.language, client: appState.apiClient)
+                            block.content = block.content.isEmpty
+                                ? corrected : block.content + "\n" + corrected
+                            isRecording = false
+                            isTranscribing = false
+                        case .error:
+                            isRecording = false
+                            isTranscribing = false
                         }
                     }
                 } catch {

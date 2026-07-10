@@ -377,6 +377,24 @@ POST /generate
 }
 ```
 
+#### `POST /canvas/correct` — 智能纠错
+
+语音转文本后自动调用，AI 修正同音词/拼写错误 + 繁简转换。
+
+```json
+// Request
+{ "text": "speech recognition text with errors", "language": "zh" }
+
+// Response
+{ "corrected": "speech recognition text with corrections" }
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `text` | string | 是 | 需要纠错的原始文本 |
+| `language` | string | 否 | `zh`=繁→简，nil=自动 |
+| `ai_provider` | string | 否 | 覆盖默认 AI 供应商 |
+
 ---
 
 ### AI 供应商发现（NEW）
