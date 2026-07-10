@@ -1,252 +1,463 @@
-# API 定义 — aideo-ipad
+# Aideo API v2.0 — iPad Canvas First
 
-## 现有 API（aideo-serv 已实现）
+Base URL: `/api/v1` | 所有 datetime 为 ISO 8601 UTC | IDs 为 UUID 小写带连字符
 
-以下接口 iPad 端直接消费，无需修改后端。
+## 认证
 
-### 1. 健康检查
+当前为 anonymous。JWT 槽位已预留：
+
 ```
-GET /api/v1/health
-→ { "status": "ok" }
+Authorization: Bearer <token>
 ```
 
-### 2. 提交生成任务
-```
-POST /api/v1/tasks                        # Status: 201
-  Body: {
-    "prompt": "一只猫在太空站漂浮",          // string, 1-4096 chars
-    "params": {                           // dict | null, 当前无 schema 约束
-      "duration": 10,                     // 时长（秒）
-      "resolution": "1080p",              // 分辨率
-      "style": "cinematic",               // 风格预设
-      "seed": 42,                         // 随机种子
-      "fps": 24,                          // 帧率
-      "cfg_scale": 7.5,                   // CFG scale
-      "steps": 50                         // 推理步数
-    },
-    "task_type": "video_generation",      // string, 默认 "video_generation"
-                                          // 可选: "speech_to_text" | "text_conversation" | "image_to_text"
-    "input_files": [                      // list[dict] | null, 可选
-      {"path": "/tmp/audio.wav", "type": "audio"}
-    ]
+`auto_error=False`，未认证请求按匿名处理。未来迁移：`auto_error=True` + `requires_auth` 依赖。
+
+## 分页
+
+所有列表接口统一 offset/limit：
+
+| 参数 | 类型 | 默认 | 最大 | 说明 |
+|---|---|---|---|---|
+| `offset` | int | 0 | — | 跳过条数 |
+| `limit` | int | 20 | 100 | 每页条数 |
+
+响应：`{ "items": [...], "total": 42, "offset": 0, "limit": 20 }`
+
+> v1 兼容：`GET /tasks` 保留 `tasks` key（非 `items`）。新端点全用 `items`。
+
+## 错误格式
+
+```json
+{
+  "error": {
+    "code": "RESOURCE_NOT_FOUND",
+    "message": "可读描述",
+    "details": []
   }
-→ Task {
-    "id": "uuid",
-    "prompt": "...",
-    "params": {...},
-    "task_type": "video_generation",
-    "input_files": null,
-    "status": "queued",
-    "progress": 0.0,
-    "created_at": "iso8601",
-    "updated_at": "iso8601",
-    "result_path": null,
-    "result_url": null,
-    "result_data": null,
-    "previews": [],
-    "error_message": null,
-    "project_id": null
-  }
+}
 ```
 
-> **iPad 注意**: iPad 当前还发送 `reference_images`（base64 data-URL 数组），该字段由 `PromptSerializer` 序列化时嵌入 `prompt` 文本，不在 `TaskCreate` model 中。
+| HTTP | Code | 场景 |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Schema 校验失败 |
+| 401 | `UNAUTHENTICATED` | 缺 token（未来） |
+| 403 | `FORBIDDEN` | 无权限 |
+| 404 | `RESOURCE_NOT_FOUND` | 资源不存在 |
+| 409 | `CONFLICT` | 状态冲突（如取消终态任务） |
+| 422 | `VALIDATION_ERROR` | Pydantic 校验失败 |
+| 500 | `INTERNAL_ERROR` | 服务端异常 |
 
-### 3. 任务列表
-```
-GET /api/v1/tasks?status=completed&offset=0&limit=20
-→ {
-    "tasks": [Task, ...],
-    "total": 42,
-    "offset": 0,
-    "limit": 20
-  }
-```
-- `status` 可选值：`queued` | `running` | `generating` | `completed` | `failed` | `cancelled`
-- `limit` 范围：1-100
+---
 
-### 4. 获取单个任务
-```
-GET /api/v1/tasks/{task_id}
-→ Task
-```
-- 任务不存在返回 404
+## 数据模型
 
-### 5. 取消任务
-```
-DELETE /api/v1/tasks/{task_id}
-→ Task  (status: "cancelled")
-```
-- 任务不存在返回 404
-- 任务已在终态返回 409
-- 若任务处于 `generating`，先向推理服务发送 `task_cancel` 消息再本地标记取消
+### PromptBlock（画布卡片）
 
-### 6. WebSocket 实时进度
-```
-WS /api/v1/ws/tasks/{task_id}
-→ 连接后首先推送当前状态，随后实时推送进度事件：
-
-  初始事件:
-  { "type": "status_change", "task_id": "uuid", "data": {"status": "queued"}, "timestamp": "iso" }
-
-  后续事件:
-  { "type": "status_change", "task_id": "uuid", "data": {"status": "running"}, "timestamp": "iso" }
-  { "type": "progress",      "task_id": "uuid", "data": {"progress": 45.5, "message": "..."}, "timestamp": "iso" }
-  { "type": "preview",       "task_id": "uuid", "data": {"frame": "0024"}, "timestamp": "iso" }
-  { "type": "completed",     "task_id": "uuid", "data": {"result_path": "...", "result_url": "..."}, "timestamp": "iso" }
-  { "type": "error",         "task_id": "uuid", "data": {"message": "..."}, "timestamp": "iso" }
-
-  WebSocket 事件类型:
-  - status_change : 状态变更 (queued→running→generating→completed/failed/cancelled)
-  - progress      : 生成进度 0-100%，可选附带 message
-  - preview       : 中间帧预览就绪，frame 为预览帧标识（如 "0000", "0024"）
-  - completed     : 任务完成，result_url 可下载视频
-  - error         : 任务失败，含错误详情
-
-  连接行为:
-  - 任务不存在 → close code 4004
-  - 任务已终态 → 发送 completed/error 后立即关闭
-  - iPad 端最多重连 5 次，指数退避 1s→2s→4s→8s→16s
+```json
+{
+  "id": "uuid",
+  "type": "scene",
+  "content": "A dark forest at twilight",
+  "scene_tag": 0,
+  "params": {}
+}
 ```
 
-### 7. 下载视频
-```
-GET /api/v1/results/{task_id}/download
-→ video/mp4 (二进制流, Content-Disposition: attachment; filename="{task_id}.mp4")
-  或 JSON (当任务携带 inline result_data 时)
-```
-- 任务未完成或无结果返回 404
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `id` | UUID | 是 | 客户端分配 |
+| `type` | enum | 是 | `scene` \| `character` \| `action` \| `style` \| `camera` \| `mood` \| `custom` |
+| `content` | string | 是 | 提示词内容 |
+| `scene_tag` | int \| null | 否 | 分镜场景组（0-based），null = 未分配 |
+| `params` | object | 否 | 每卡片参数覆盖（见 GenerationParams） |
 
-### 8. 获取预览帧
+### GenerationParams
+
+```json
+{
+  "duration": 5,
+  "resolution": "1080p",
+  "style": "cinematic",
+  "seed": 42,
+  "fps": 24,
+  "cfg_scale": 7.5,
+  "steps": 50
+}
 ```
-GET /api/v1/results/{task_id}/preview/{frame}
-→ image/jpeg
+
+所有字段可选。客户端只发送覆盖值。
+
+| 字段 | 类型 | 可选值 |
+|---|---|---|
+| `duration` | int | 5, 10 |
+| `resolution` | string | `720p`, `1080p` |
+| `style` | string | `cinematic`, `anime`, `realistic`, `oil-painting`, `3d-render`, `cyberpunk` |
+| `seed` | int | 任意 |
+| `fps` | int | 24, 30 |
+| `cfg_scale` | float | ~7.5 |
+| `steps` | int | ~50 |
+
+### BlockConnection
+
+```json
+{ "source_id": "uuid", "target_id": "uuid" }
 ```
-- `frame` 匹配预览文件名前缀（如 `0000`, `0024`）
-- 预览帧不存在返回 404
 
-### 9. WebSocket 流式语音转写
+有向边。无额外元数据。
+
+### GenerationTask
+
+Task 模型扩展三个字段（`project_id`、`output_node_id`、`prompt_structured`），其余继承 v1：
+
+| 字段 | 类型 | 新增? | 说明 |
+|---|---|---|---|
+| `id` | UUID | — | 任务 ID |
+| `project_id` | UUID \| null | **NEW** | 所属项目 |
+| `output_node_id` | UUID \| null | **NEW** | 触发的画布输出节点 |
+| `prompt` | string | — | 扁平化 prompt（向后兼容） |
+| `prompt_structured` | object \| null | **NEW** | 结构化提交快照（调试/重新生成） |
+| `params` | object \| null | — | 生成参数 |
+| `task_type` | string | — | `video_generation` \| `speech_to_text` \| ... |
+| `status` | enum | — | `queued` → `running` → `generating` → `completed` / `failed` / `cancelled` |
+| `progress` | float | — | 0.0 – 100.0 |
+| `created_at` | datetime | — | |
+| `updated_at` | datetime | — | |
+| `result_path` | string \| null | — | 服务端文件路径 |
+| `result_url` | string \| null | — | 下载 URL |
+| `result_data` | object \| null | — | 内联结果（如转录 JSON） |
+| `previews` | string[] | — | 预览帧 URL 列表 |
+| `error_message` | string \| null | — | 失败原因 |
+| `input_files` | array \| null | — | 输入文件引用 |
+
+### Project
+
+```json
+{
+  "id": "uuid",
+  "name": "My Animation",
+  "canvas_data": {
+    "prompt_blocks": [...],
+    "media_outputs": [...],
+    "reference_nodes": [...],
+    "ai_enhance_nodes": [...],
+    "connections": [...],
+    "viewport": { "center_x": 1500, "center_y": 1000, "scale": 1.0 }
+  },
+  "metadata": {},
+  "task_count": 3,
+  "created_at": "2026-07-10T12:00:00Z",
+  "updated_at": "2026-07-10T12:00:00Z"
+}
 ```
-WS /api/v1/ws/transcribe
 
-  客户端 → 服务端: 二进制帧 (raw PCM 16kHz 16bit mono 或 WAV)
-  服务端 → 客户端: JSON 文本帧
+`canvas_data` 的四个节点数组 1:1 对应 iPad SwiftData model，客户端可无损 round-trip。
 
-  事件流:
-  → {"type": "status_change", "data": {"status": "queued"}}
-  → {"type": "progress",      "data": {"progress": 50.0, "message": "..."}}
-  → {"type": "result", "task_id": "uuid", "data": {
-        "full_text": "转录的完整文本",
-        "segments": [{"start": 0.0, "end": 2.5, "text": "..."}],
-        "language": "zh"
-      }}
-  → {"type": "error", "task_id": "uuid", "data": {"message": "..."}}
+### Asset
 
-  处理流程:
-  1. 每段二进制音频保存为临时 .wav
-  2. 创建 task_type="speech_to_text" 任务
-  3. 通过内部 WS 分发给 aideo-runtime
-  4. 转录结果流式回客户端，清理临时文件
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "filename": "ref_01.jpg",
+  "content_type": "image/jpeg",
+  "size": 2048576,
+  "media_type": "image",
+  "uploaded_at": "2026-07-10T12:00:00Z",
+  "url": "/api/v1/assets/uuid/download",
+  "metadata": { "original_name": "IMG_001.jpg", "width": 1920, "height": 1080 }
+}
+```
+
+### AssistBlock
+
+Assist 端点返回，可直接落画布：
+
+```json
+{ "type": "scene", "content": "...", "params": {} }
 ```
 
 ---
 
-## 缺失 API（需在 aideo-serv 新增）
+## REST 端点
 
-以下接口为 iPad 画布式创作和 AI 辅助功能所需，后端尚未实现。
+### 系统
 
-### 10. AI 提示词补全
 ```
-POST /api/v1/assist/complete
-  Body: {
-    "context": "一只猫在",                  // 用户当前输入的上下文
-    "mode": "suggestion"                  // "suggestion" | "completion"
-  }
-→ {
-    "suggestions": [                      // 建议列表，按相关度排序
-      "一只猫在太空站漂浮，背景是浩瀚星空",
-      "一只猫在花园里追逐蝴蝶，阳光透过树叶",
-      "一只猫在屋顶上眺望城市夜景"
-    ]
-  }
+GET /health
+→ { "status": "ok", "version": "2.0.0", "services": { "inference": "connected", "storage": "ok" } }
 ```
-**用途**：用户在画布卡片中输入时，实时获取提示词补全建议。
 
-### 11. AI 自动结构化
-```
-POST /api/v1/assist/structure
-  Body: {
-    "description": "夕阳下的海滩，一个冲浪者正在准备下海，慢镜头"   // 自由文本描述
-  }
-→ {
-    "blocks": [
-      {"type": "scene",   "content": "夕阳下的海滩，金色光线，海浪拍打沙滩"},
-      {"type": "character","content": "冲浪者，手持冲浪板，走向大海"},
-      {"type": "action",  "content": "慢镜头，准备下海的动作"},
-      {"type": "style",   "content": "cinematic, warm tone, slow motion"}
-    ]
-  }
-```
-**用途**：用户输入一段自由描述，AI 自动拆成画布卡片块。block type 枚举：`scene` | `character` | `action` | `style` | `camera` | `mood`。
-
-### 12. AI 灵感探索
-```
-POST /api/v1/assist/inspire
-  Body: {
-    "theme": "赛博朋克"                    // 可选，不传则随机
-  }
-→ {
-    "themes": [
-      {
-        "title": "霓虹雨夜的东京小巷",
-        "prompt": "雨夜的东京小巷，霓虹灯倒映在水洼中，一个cyborg在街头漫步...",
-        "style_hint": "cyberpunk, neon, rain",
-        "tags": ["赛博朋克", "雨夜", "城市"]
-      },
-      ...共 3-5 个
-    ]
-  }
-```
-**用途**：用户需要创意灵感时，AI 推荐主题和对应的提示词。
+新增 `version` 和 `services` 状态，供 iPad 健康监控。
 
 ---
 
-## 参数定义约定
+### 项目（NEW）
 
-`POST /api/v1/tasks` 的 `params` 字段当前为自由 dict。iPad 端统一使用以下 key（与 CLI 对齐）：
+```
+POST   /projects                        创建项目
+GET    /projects                        列表（offset/limit）
+GET    /projects/{id}                   详情 + canvas_data
+PATCH  /projects/{id}                   局部更新（name | canvas_data | metadata）
+DELETE /projects/{id}                   删项目 + 关联 tasks + assets → 204
+GET    /projects/{id}/tasks             项目下任务列表（offset/limit + status filter）
+GET    /projects/{id}/assets            项目素材列表（offset/limit + media_type filter）
+```
 
-| Key | 类型 | 说明 | 示例值 |
-|-----|------|------|--------|
-| `duration` | int | 视频时长（秒） | `5`, `10` |
-| `resolution` | string | 输出分辨率 | `720p`, `1080p` |
-| `style` | string | 风格预设 | `cinematic`, `anime`, `realistic` |
-| `seed` | int | 随机种子 | `42` |
-| `fps` | int | 帧率 | `24`, `30` |
-| `cfg_scale` | float | CFG scale | `7.5` |
-| `steps` | int | 推理步数 | `50` |
+**PATCH body**（全部可选）：`{ "name": "新名", "canvas_data": {...}, "metadata": {...} }`
 
 ---
 
-## Task 模型完整字段
+### 素材（NEW）
 
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `id` | UUID | — | 唯一任务标识 |
-| `prompt` | string | — | 生成提示词 |
-| `params` | dict \| null | `null` | 生成参数 |
-| `task_type` | string | `"video_generation"` | 任务类型 |
-| `input_files` | list[dict] \| null | `null` | 输入文件（如音频） |
-| `status` | TaskStatus | `"queued"` | 生命周期状态 |
-| `progress` | float | `0.0` | 0.0–100.0 |
-| `created_at` | datetime | now | 创建时间 (UTC) |
-| `updated_at` | datetime | now | 更新时间 (UTC) |
-| `result_path` | string \| null | `null` | 服务端结果文件路径 |
-| `result_url` | string \| null | `null` | 结果下载 URL |
-| `result_data` | dict \| null | `null` | 内联结果数据（替代文件） |
-| `previews` | list[string] | `[]` | 预览帧标识列表 |
-| `error_message` | string \| null | `null` | 失败原因 |
-| `project_id` | UUID \| null | `null` | 关联项目（预留） |
+```
+POST   /assets                          上传 → 201。multipart/form-data
+GET    /assets/{id}                     元数据
+GET    /assets/{id}/download            文件二进制
+DELETE /assets/{id}                     删除文件 → 204
+```
 
-## 任务状态机
+**上传请求**：`file` (binary, 必填)、`project_id` (UUID, 可选)、`media_type` (可选，自动检测)
+
+限制：50 MB/文件（`AIDEO_MAX_ASSET_SIZE`）
+
+---
+
+### 生成 — 结构化画布提交（NEW）
+
+```
+POST /generate
+```
+
+客户端的 `collectInputs()` BFS 收集子图 + PromptBlock + 连线 → 发结构给后端。后端负责序列化为模型 prompt。
+
+**Request**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `project_id` | UUID | 否 | 所属项目 |
+| `output_node_id` | UUID | 是 | 目标输出节点 |
+| `output_content_type` | string | 是 | `video` \| `image` \| `text` |
+| `blocks` | PromptBlock[] | 是 | 上游所有 prompt 卡片 |
+| `connections` | BlockConnection[] | 是 | 子图连线 |
+| `reference_assets` | ReferenceAsset[] | 否 | 已上传素材引用 |
+| `upstream_context` | UpstreamResult[] | 否 | 上游输出节点的文本/图片/视频 |
+| `ai_enhance_context` | string[] | 否 | AIEnhanceNode 的输出文本 |
+| `output_params` | GenerationParams | 否 | 此次生成参数 |
+
+**ReferenceAsset**：`{ "asset_id": "uuid", "usage": "style_reference" }` — usage 可选值：`style_reference` \| `character_reference` \| `background` \| `motion_reference`
+
+**UpstreamResult**：`{ "node_id": "uuid", "content_type": "...", "text": "...", "asset_id": "uuid" }`
+
+**示例**：
+```json
+{
+  "project_id": "proj-1234",
+  "output_node_id": "out-5678",
+  "output_content_type": "video",
+  "blocks": [
+    {"id": "b1", "type": "scene", "content": "Neon-lit cyberpunk alley at midnight", "scene_tag": 0},
+    {"id": "b2", "type": "character", "content": "Samurai with cybernetic arm, glowing blue tattoos", "scene_tag": 0},
+    {"id": "b3", "type": "action", "content": "Walking through rain, hand on katana", "scene_tag": 0},
+    {"id": "b4", "type": "style", "content": "Cinematic noir, Blade Runner aesthetic", "params": {"style": "cinematic"}}
+  ],
+  "connections": [
+    {"source_id": "b1", "target_id": "out-5678"},
+    {"source_id": "b2", "target_id": "out-5678"},
+    {"source_id": "b3", "target_id": "out-5678"},
+    {"source_id": "b4", "target_id": "out-5678"}
+  ],
+  "reference_assets": [{"asset_id": "asset-aaaa", "usage": "style_reference"}],
+  "output_params": {"duration": 5, "resolution": "1080p", "fps": 24}
+}
+```
+
+**Response 201**：`{ "task_id": "uuid", "task": {...} }`
+
+**后端行为**：
+1. 按 `scene_tag` 分组 → 多场景提示词结构
+2. 用 block type 做分区头（比 `[Type]: text` 更丰富）
+3. `asset_id` → 文件路径（不再 base64 解码）
+4. task 上写 `prompt_structured`（调试/重新生成用）
+5. 设置 `project_id` 和 `output_node_id`
+6. 创建任务 → 提交推理 → 返回 task_id 供 WS 订阅
+
+---
+
+### 任务（v1 保留 + 扩展）
+
+```
+POST   /tasks                           扁平 prompt（向后兼容, CLI/测试用）
+GET    /tasks                           列表（status/offset/limit，+project_id filter）
+GET    /tasks/{id}                      详情（响应含 project_id/output_node_id/prompt_structured）
+DELETE /tasks/{id}                      取消 → 200。终态任务返回 409
+```
+
+---
+
+### Canvas Assist（NEW — 重新设计）
+
+三个端点都返回 `PromptBlock` 结构，iPad 建好卡片直接落画布。
+
+#### `POST /canvas/structure` — 自由文本 → 类型化 PromptBlock
+
+```json
+// Request
+{ "description": "A samurai in a cyberpunk city at night, walking through rain" }
+
+// Response
+{
+  "blocks": [
+    {"type": "scene", "content": "Cyberpunk city at night, neon-lit streets, rain falling"},
+    {"type": "character", "content": "Skilled samurai with cybernetic arm, glowing blue tattoos, dark cloak"},
+    {"type": "action", "content": "Walking slowly through rain, hand on katana"},
+    {"type": "style", "content": "Cyberpunk noir, cinematic lighting, volumetric rain"},
+    {"type": "camera", "content": "Low angle wide shot, depth of field"},
+    {"type": "mood", "content": "Melancholic, tense, atmospheric"}
+  ]
+}
+```
+
+#### `POST /canvas/complete` — 上下文 + 模式 → 补全建议
+
+mode = `"completion"`（补缺类型）或 `"suggestion"`（提供替代）
+
+```json
+// Request
+{
+  "context": "A warrior princess in an ancient temple",
+  "existing_blocks": [{"id": "x", "type": "scene", "content": "Ancient temple ruins at sunset"}],
+  "mode": "completion"
+}
+
+// Response
+{
+  "suggestions": [
+    {
+      "title": "Add character details",
+      "blocks": [
+        {"type": "character", "content": "Warrior princess, long braided hair, leather armor"},
+        {"type": "action", "content": "Standing at temple entrance, surveying ruins"}
+      ]
+    }
+  ]
+}
+```
+
+#### `POST /canvas/inspire` — 主题 → 灵感模板
+
+```json
+// Request
+{ "theme": "underwater civilization" }
+
+// Response
+{
+  "themes": [
+    {
+      "title": "Atlantean Palace",
+      "prompt": "A grand underwater palace built from coral and crystal...",
+      "style_hint": "Submerged lighting, bioluminescent accents, deep blue palette",
+      "tags": ["underwater", "fantasy", "palace"],
+      "blocks": [
+        {"type": "scene", "content": "Grand underwater hall with coral pillars"},
+        {"type": "character", "content": "Atlantean queen, pearl crown, iridescent robes"},
+        {"type": "style", "content": "Fantasy realism, ethereal glow", "params": {"style": "cinematic"}}
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### 结果（不变）
+
+```
+GET /results/{task_id}/download      → video/mp4 或 JSON
+GET /results/{task_id}/preview/{frame} → image/jpeg
+```
+
+---
+
+## WebSocket 端点
+
+### `WS /ws/projects/{project_id}`（NEW — 项目级多路复用）
+
+单连接承载项目内所有任务事件。
+
+**连接行为**：
+1. 接受连接
+2. 发送 `connected` 事件 + 所有非终态任务快照（断线重放）
+3. 流式推送所有任务事件，每个事件带 `task_id` + `output_node_id`
+4. 全部任务终态后连接保持，等待新任务
+
+**类型化事件**（`event` 字段区分，无泛型 `data` dict）：
+
+| 事件 | `event` 值 | 关键字段 |
+|---|---|---|
+| 初始快照 | `connected` | `snapshot.active_tasks[]` — task_id, status, progress, previews |
+| 状态变更 | `task.status` | `status`: queued/running/generating/completed/failed/cancelled |
+| 进度 | `task.progress` | `progress`, `message` |
+| 帧预览 | `task.preview` | `frame_url`, `frame_index` |
+| 完成 | `task.completed` | `result_url`, `result_data`, `previews[]` |
+| 失败 | `task.failed` | `error_message` |
+| 取消 | `task.cancelled` | — |
+| 协议错误 | `error` | `code`, `message`（后关闭连接） |
+
+Close codes：4004=项目不存在, 4005=未授权（未来）
+
+### `WS /ws/tasks/{task_id}`（v1 保留）
+
+向后兼容。新增 `event` discriminator（旧 `{type, data}` 格式迁移期间并行提供）。
+
+### `WS /ws/transcribe`（不变）
+
+流式语音转写。二进制音频入，JSON 事件出。
+
+---
+
+## 内部端点（参考，不对外暴露）
+
+```
+POST /internal/callback            推理服务 HTTP 回调（遗留 LTX-2）
+WS   /ws/internal/inference        推理服务注册 + 消息路由
+```
+
+---
+
+## API 总结
+
+```
+新增（16个端点 + 1个WS）                   保留（不变）
+─────────────────────────               ─────────────────
+POST   /projects                       GET    /health
+GET    /projects                       POST   /tasks
+GET    /projects/{id}                  GET    /tasks
+PATCH  /projects/{id}                  GET    /tasks/{id}
+DELETE /projects/{id}                  DELETE /tasks/{id}
+GET    /projects/{id}/tasks            WS     /ws/tasks/{id}
+GET    /projects/{id}/assets           WS     /ws/transcribe
+POST   /assets                         GET    /results/{id}/download
+GET    /assets/{id}                    GET    /results/{id}/preview/{frame}
+GET    /assets/{id}/download           POST   /internal/callback
+DELETE /assets/{id}                    WS     /ws/internal/inference
+POST   /generate
+POST   /canvas/structure
+POST   /canvas/complete
+POST   /canvas/inspire
+WS     /ws/projects/{id}
+```
+
+## 关键设计变更
+
+| 旧模式 | 新模式 | 收益 |
+|---|---|---|
+| base64 图片进 JSON | asset_id 引用 | 33% 体积省了，可去重 |
+| 每输出节点独立 WS | 单项目 WS 多路复用 | N→1 连接 |
+| 泛型 `{type, data}` 事件 | 类型化 `task.progress` 等 | 编译期安全，消灭 AnyCodable |
+| 客户端 PromptSerializer | 后端结构化序列化 | 后端持有 prompt 格式 |
+| 客户端 BFS + base64 编码 | 客户端发子图结构，后端解析资产 | 职责分离 |
+
+## 状态机
 
 ```
 queued ──→ running ──→ generating ──→ completed
@@ -256,56 +467,13 @@ queued ──→ running ──→ generating ──→ completed
   └──→ cancelled
 ```
 
-终态：`completed`, `failed`, `cancelled`。状态转换由 `TaskService._transition()` 校验。
+终态：`completed`、`failed`、`cancelled`。
 
----
+## iPad 迁移路径
 
-## 内部端点（参考，不对外暴露）
-
-### HTTP 回调（遗留 LTX-2 模式）
-```
-POST /api/v1/internal/callback
-  Body: {
-    "type": "progress | completed | error",
-    "task_id": "uuid",
-    "data": { ... }
-  }
-```
-推理服务通过 HTTP 回传进度，作为 WebSocket 的降级方案。
-
-### 推理服务 WebSocket
-```
-WS /api/v1/ws/internal/inference
-```
-aideo-serv ↔ aideo-runtime 之间的内部通道。
-
-1. **注册握手**（推理→serv，30s 超时）：
-```json
-{"type": "register", "service_type": "aideo-runtime", "capabilities": ["video_generation", "speech_to_text"], "version": "0.1.0"}
-```
-
-2. **确认**（serv→推理）：`{"type": "registered", "data": {"service_type": "aideo-runtime"}}`
-
-3. **任务分发**（serv→推理）：`task_submit`（含 prompt/params/model_root/output_root/input_root/input_files）、`task_cancel`
-
-4. **状态回传**（推理→serv，转发至 TaskService）：`progress`、`completed`、`error`、`cancelled`
-
-每种 `service_type` 只允许一个连接，新连接挤掉旧连接（close code 4001）。
-
----
-
-## API 总结
-
-```
-现有（8个端点 + 2个WS）                   新增（3个端点）
-─────────────────────────               ──────────────────────────
-GET    /health                          POST /assist/complete
-POST   /tasks                           POST /assist/structure
-GET    /tasks                           POST /assist/inspire
-GET    /tasks/{id}
-DELETE /tasks/{id}
-WS     /ws/tasks/{id}         ← 任务实时进度
-WS     /ws/transcribe         ← 流式语音转写
-GET    /results/{id}/download
-GET    /results/{id}/preview/{frame}
-```
+1. `POST /tasks` → `POST /generate`（结构化提交）
+2. base64 → `POST /assets` + asset_id 引用
+3. `ws/tasks/{id}` → `ws/projects/{id}`
+4. 本地 SwiftData → Project CRUD 云端同步
+5. 硬编码 fallback → `/canvas/*` 端点
+6. 移除 `PromptSerializer.swift` + `AnyCodable`
