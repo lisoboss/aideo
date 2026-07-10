@@ -1,64 +1,50 @@
 """Abstract base for all inference providers."""
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
-from typing import Optional
 
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
+
 
 class ProgressStatus(BaseModel):
-    progress: float
-    message: str
-    result_data: Optional[dict]
+    """Emitted during ``run()`` — intermediate progress or final result."""
+
+    progress: float = 0.0
+    message: str = ""
+    result_data: dict | None = None
 
 
 class BaseProvider(ABC):
-    """Every inference provider (video, speech, chat, vision) implements this."""
+    """Every inference provider implements this.
+
+    Subclasses MUST set ``provider_name`` as a class-level str, e.g.
+    ``provider_name = "faster-whisper@speech"``.
+    """
+
+    provider_name: str   # set by subclass
 
     @abstractmethod
-    async def __load__(self) -> None:
-        """Load the model into memory."""
+    async def load(self) -> None:
+        """Load the model into memory. Called on first request."""
         ...
 
     @abstractmethod
-    async def __unload__(self) -> None:
-        """Unload the model from memory."""
-        ...
-
-    async def __aenter__(self) -> "BaseProvider":
-        await self.__load__()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        await self.__unload__()
-
-    @property
-    @abstractmethod
-    def provider_name(self) -> str:
-        """Human-readable provider identifier (e.g. 'ltx2@video.provider', 'faster-whisper@speech.provider')."""
+    async def unload(self) -> None:
+        """Release the model from memory. Called after idle timeout."""
         ...
 
     @abstractmethod
-    async def submit(self, **kwargs) -> str:
-        """Return a unique task ID for this inference run."""
-        ...
+    async def run(self, **kwargs) -> AsyncGenerator[ProgressStatus, None]:
+        """Execute inference, yielding intermediate progress then final result.
 
-    @abstractmethod
-    async def cancel(self) -> None:
-        """Cancel an inference run."""
-        ...
-
-    @abstractmethod
-    async def result(self) -> dict:
-        """Return the final result of an inference run, if available."""
-        ...
-
-    @abstractmethod
-    async def progress(self) -> AsyncGenerator[ProgressStatus, None]:
-        """Execute inference, yielding progress dicts then a final result.
-
-        Progress yields: ``{"progress": float, "message": str}``
-        Final yield:     ``{"progress": 100.0, "message": str, "result_data": {...}}``
+        The last yield should have ``result_data`` populated.
         """
         ...
+
+    @property
+    def is_loaded(self) -> bool:
+        """Whether the model is currently in memory."""
+        return getattr(self, "_loaded", False)

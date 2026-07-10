@@ -1,4 +1,3 @@
-"""Text-to-video providers."""
+"""Video generation providers. Lazy imports to avoid torch at startup."""
 
-from . import ltx2
-from .provider import VideoProvider, get_provider
+from aideo_runtime.video.provider import PROVIDERS, VideoProvider, get_provider, register_provider

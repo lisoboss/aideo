@@ -15,22 +15,31 @@
 - [x] API v2.0 协议设计 + iPad 端全量实现
 - [x] 语音转文本输入（SpeechRecognizer + WS /ws/transcribe）
 - [x] 转录后 AI 智能纠错（POST /canvas/correct）
+- [x] 文生图 + 图片编辑 API 协议（/canvas/edit-image, /canvas/upscale）
+- [x] aideo-runtime HTTP+SSE 重构（/api/v1/{category}/{name} + 自动加载/释放）
 
-## 🔴 进行中
+## ✅ 文生图 + 图片编辑（协议）
+- [x] GenerationParams 扩展 aspect_ratio, image_quality
+- [x] EditImageRequest/Response + MaskRegion + UpscaleRequest 模型
+- [x] APIClient.editImage() / upscaleImage()
+- [x] API.md 新增 /canvas/edit-image + /canvas/upscale
 
-### 文生图（MVP）
-- [ ] GenerationParams 扩展 aspect_ratio, image_quality
-- [ ] POST /generate 支持 output_content_type: "image"
-- [ ] MediaOutputNode(contentType: .image) 生成流程验证
-- [ ] API.md 更新
+## ✅ aideo-runtime HTTP+SSE 重构
+- [x] provider.py — 简化为 load/unload/run + ProgressStatus
+- [x] speech/faster_whisper.py — 实现 load/unload/run，yield ProgressStatus
+- [x] 各 category __init__.py — PROVIDERS 注册表
+- [x] server.py — HTTP POST + SSE EventSourceResponse + ProviderManager
+- [x] 自动加载（首次请求）+ 空闲释放（5min idle timeout）
+- [x] pyproject.toml — +sse-starlette
 
-### 图片编辑
-- [ ] EditImageRequest/Response + MaskRegion 模型
-- [ ] POST /canvas/edit-image（composite | replace_character | inpainting | style_transfer）
-- [ ] APIClient.editImage() / upscaleImage()
-- [ ] POST /canvas/upscale
-- [ ] 选区 UI（手势画矩形选区）
-- [ ] API.md 更新
+## 📝 变更日志 (2026-07-10)
+1. 新增 SpeechRecognizer.swift（录音+WAV+WS transcribe）
+2. 新增 TranscriptPostProcessor（AI 纠错 /canvas/correct）
+3. 新增 HealthSheetView（服务端状态详情）
+4. 画布级共享 WS 连接（CanvasViewModel.connectProjectWS）
+5. API v2.0 扩展：文生图 + 图片编辑 + 语音转写 + AI 纠错
+6. aideo-runtime 重构：WS → HTTP+SSE，ProviderManager 自动化生命周期
+7. 语言偏好设置（zh/en/ja/ko/auto）
 
 ## 🟢 低优先级
 

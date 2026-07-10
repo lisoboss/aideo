@@ -1,4 +1,5 @@
-"""Text conversation (LLM) providers."""
+"""Chat / text conversation providers."""
 
-from . import stub
-from .provider import ChatProvider, get_provider
+from aideo_runtime.chat.provider import PROVIDERS, ChatProvider, get_provider, register_provider
+
+import aideo_runtime.chat.stub  # noqa: F401

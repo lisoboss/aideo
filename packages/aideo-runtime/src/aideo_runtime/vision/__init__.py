@@ -1,4 +1,5 @@
-"""Image-to-text (vision) providers."""
+"""Vision / image-to-text providers."""
 
-from . import stub
-from .provider import VisionProvider, get_provider
+from aideo_runtime.vision.provider import PROVIDERS, VisionProvider, get_provider, register_provider
+
+import aideo_runtime.vision.stub  # noqa: F401
