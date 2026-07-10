@@ -6,10 +6,10 @@
       "Bash(uv sync *)"
     ],
     "deny": [
-      "Edit(*.pre-commit-config.yaml)",
-      "Edit(*pyproject.toml)",
-      "Write(*.pre-commit-config.yaml)",
-      "Write(*pyproject.toml)"
+      "Edit(**/.pre-commit-config.yaml)",
+      "Edit(**/pyproject.toml)",
+      "Write(**/.pre-commit-config.yaml)",
+      "Write(**/pyproject.toml)"
     ]
   }
 }

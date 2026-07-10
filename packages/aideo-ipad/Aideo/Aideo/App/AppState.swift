@@ -1,0 +1,73 @@
+import SwiftUI
+import Observation
+
+/// 全局应用状态
+@Observable
+final class AppState {
+    /// 后端服务器地址
+    var serverURL: String = "http://192.168.31.3:8000" {
+        didSet {
+            apiClient = APIClient(baseURL: serverURL)
+            wsClient = WebSocketClient(serverURL: serverURL)
+        }
+    }
+
+    /// API 客户端
+    private(set) var apiClient: APIClient
+
+    /// WebSocket 客户端
+    private(set) var wsClient: WebSocketClient
+
+    /// 下载管理器
+    let downloadManager = DownloadManager()
+
+    /// 后端连接状态
+    var isConnected: Bool = false
+    var isCheckingHealth: Bool = false
+
+    /// 健康检查间隔
+    var healthCheckInterval: TimeInterval = 30.0
+
+    /// 上一次检查时间
+    var lastCheckTime: Date?
+
+    /// 连接失败次数
+    var consecutiveFailures: Int = 0
+
+    /// 私有轮询 Task
+    private var monitorTask: Task<Void, Never>?
+
+    init() {
+        let url = "http://192.168.31.3:8000"
+        self.apiClient = APIClient(baseURL: url)
+        self.wsClient = WebSocketClient(serverURL: url)
+    }
+
+    // MARK: - Health Monitor
+
+    func startHealthMonitor() {
+        stopHealthMonitor()
+        monitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.checkHealth()
+                try? await Task.sleep(for: .seconds(self?.healthCheckInterval ?? 5))
+            }
+        }
+    }
+
+    func stopHealthMonitor() {
+        monitorTask?.cancel()
+        monitorTask = nil
+    }
+
+    func checkHealth() async {
+        isCheckingHealth = true
+        defer {
+            isCheckingHealth = false
+            lastCheckTime = Date()
+        }
+        let success = await apiClient.healthCheck()
+        isConnected = success
+        consecutiveFailures = success ? 0 : consecutiveFailures + 1
+    }
+}
