@@ -25,4 +25,14 @@ uv add --dev <pkg>                         # add shared dev dep
 
 ## Rules
 
-See `.claude/rules/` for detailed conventions and architecture.
+`CLAUDE.md` is kept simple and `.claude/rules/` is split by modules.
+
+See `.claude/rules/` for conventions and per-module architecture:
+
+| File | Module |
+|------|--------|
+| [architecture.md](.claude/rules/architecture.md) | Overview + shared concepts |
+| [architecture-serv.md](.claude/rules/architecture-serv.md) | aideo-serv backend |
+| [architecture-runtime.md](.claude/rules/architecture-runtime.md) | aideo-runtime + CLI |
+| [architecture-ipad.md](.claude/rules/architecture-ipad.md) | aideo-ipad client |
+| [conventions.md](.claude/rules/conventions.md) | Code conventions |
