@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 任务详情页 — 实时进度 + 事件时间线
+/// 任务详情页 — v2: REST 获取 + 静态展示
 struct TaskDetailView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: TaskDetailViewModel
@@ -12,60 +12,23 @@ struct TaskDetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // 状态卡片
                 statusCard
 
-                // 进度条
                 if !viewModel.task.status.isTerminal {
                     progressSection
                 }
 
-                // 提示词
                 promptSection
 
-                // 预览帧
                 if !viewModel.task.previews.isEmpty {
                     previewsSection
                 }
-
-                // 事件时间线
-                if !viewModel.events.isEmpty {
-                    eventsTimeline
-                }
-
-                // 操作按钮
-                actionsSection
             }
             .padding()
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("任务详情")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                // WS 连接指示灯
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(viewModel.isLive ? Color.green : Color.secondary)
-                        .frame(width: 6, height: 6)
-                        .pulseAnimation(isActive: viewModel.isLive)
-                    Text(viewModel.isLive ? "实时" : "离线")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .task {
-            // 先 fetch 最新 task 数据
-            if let fresh = try? await appState.apiClient.getTask(id: viewModel.task.id) {
-                viewModel.task = fresh
-            }
-            // 订阅 WS
-            viewModel.subscribe(ws: appState.wsClient)
-        }
-        .onDisappear {
-            viewModel.unsubscribe(ws: appState.wsClient)
-        }
     }
 
     // MARK: - Status Card
@@ -126,15 +89,6 @@ struct TaskDetailView: View {
                     .fontWeight(.bold)
                     .foregroundStyle(statusColor)
                 Spacer()
-                if viewModel.isLive {
-                    HStack(spacing: 4) {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                        Text("实时更新中")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
             }
         }
         .padding()
@@ -200,66 +154,6 @@ struct TaskDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Events Timeline
-
-    private var eventsTimeline: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("事件时间线", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
-                .font(.headline)
-
-            ForEach(viewModel.events.reversed()) { event in
-                HStack(spacing: 10) {
-                    Image(systemName: eventIcon(event.type))
-                        .font(.caption)
-                        .foregroundStyle(eventColor(event.type))
-                        .frame(width: 20)
-
-                    Text(eventTitle(event))
-                        .font(.caption)
-                        .foregroundStyle(.primary)
-
-                    Spacer()
-
-                    Text(event.timestamp.formatted(.dateTime.hour().minute().second()))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-        .padding()
-        .background(Color(uiColor: .systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    // MARK: - Actions
-
-    private var actionsSection: some View {
-        HStack(spacing: 12) {
-            // 取消
-            if !viewModel.task.status.isTerminal {
-                Button {
-                    Task { await viewModel.cancelTask(client: appState.apiClient) }
-                } label: {
-                    Label("取消任务", systemImage: "xmark.circle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-            }
-
-            // 下载（完成后显示）
-            if viewModel.task.status == .completed {
-                Button {
-                    // 下载逻辑 Phase 4 实现
-                } label: {
-                    Label("下载视频", systemImage: "arrow.down.to.line")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
-    }
-
     // MARK: - Helpers
 
     private var statusColor: Color {
@@ -271,66 +165,5 @@ struct TaskDetailView: View {
         case .failed: .red
         case .cancelled: .orange
         }
-    }
-
-    private func eventIcon(_ type: String) -> String {
-        switch type {
-        case "status_change": "arrow.triangle.branch"
-        case "progress": "chart.line.uptrend.xyaxis"
-        case "preview": "photo"
-        case "completed": "checkmark.circle.fill"
-        case "error": "xmark.octagon.fill"
-        default: "circle"
-        }
-    }
-
-    private func eventColor(_ type: String) -> Color {
-        switch type {
-        case "status_change": .blue
-        case "progress": .purple
-        case "preview": .orange
-        case "completed": .green
-        case "error": .red
-        default: .secondary
-        }
-    }
-
-    private func eventTitle(_ event: WSEvent) -> String {
-        switch event.type {
-        case "status_change":
-            "状态更新: \(event.statusValue ?? "—")"
-        case "progress":
-            "进度: \(Int(event.progressValue ?? 0))%"
-        case "preview":
-            "预览帧就绪"
-        case "completed":
-            "生成完成"
-        case "error":
-            "错误: \(event.errorMessage ?? "未知")"
-        default:
-            event.type
-        }
-    }
-}
-
-// MARK: - Pulse Animation Modifier
-
-private struct PulseModifier: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .scaleEffect(isActive ? 1.3 : 1.0)
-            .opacity(isActive ? 0.6 : 1.0)
-            .animation(
-                isActive ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true) : .default,
-                value: isActive
-            )
-    }
-}
-
-extension View {
-    func pulseAnimation(isActive: Bool) -> some View {
-        modifier(PulseModifier(isActive: isActive))
     }
 }

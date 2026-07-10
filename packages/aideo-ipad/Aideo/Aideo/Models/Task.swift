@@ -39,7 +39,7 @@ enum TaskStatus: String, Codable, CaseIterable {
     }
 }
 
-/// 任务模型，对应后端 Task
+/// 任务模型，对应后端 GenerationTask
 struct TaskModel: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var prompt: String
@@ -53,6 +53,11 @@ struct TaskModel: Identifiable, Codable, Equatable, Sendable {
     var previews: [String]
     var errorMessage: String?
 
+    // v2: 结构化提交 & 项目关联
+    var projectId: UUID?
+    var outputNodeId: UUID?
+    var promptStructured: [String: AnyCodable]?
+
     enum CodingKeys: String, CodingKey {
         case id, prompt, params, status, progress
         case createdAt = "created_at"
@@ -61,6 +66,9 @@ struct TaskModel: Identifiable, Codable, Equatable, Sendable {
         case resultURL = "result_url"
         case previews
         case errorMessage = "error_message"
+        case projectId = "project_id"
+        case outputNodeId = "output_node_id"
+        case promptStructured = "prompt_structured"
     }
 
     static func == (lhs: TaskModel, rhs: TaskModel) -> Bool {

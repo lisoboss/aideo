@@ -26,6 +26,13 @@ final class CanvasViewModel {
     /// 当前高亮的节点 ID（生成流程中）
     var highlightedNodeId: UUID?
 
+    // v2: 项目关联
+    /// 当前项目 ID（云端 Project），用于项目级 WS 和同步
+    var projectId: UUID?
+
+    /// 是否正在使用项目级 WS
+    private var usingProjectWS: Bool = false
+
     /// 故事板模式
     var showStoryboard: Bool = false
     var storyboardScenes: [StoryboardScene] = []
@@ -188,20 +195,98 @@ final class CanvasViewModel {
         }
     }
 
-    func processAIEnhance(input: String, client: APIClient) async -> String? {
+    // MARK: - AI Enhance (v2)
+
+    /// v2: 调用 /canvas/structure，返回 [AssistBlock] 直接落画布
+    func processAIEnhance(input: String, client: APIClient) async -> [AssistBlock]? {
         // 尝试调用后端 API
         if let response = try? await client.structurize(description: input) {
-            return response.blocks.map { "[\($0.type)]: \($0.content)" }.joined(separator: "\n")
+            return response.blocks
         }
-        // Fallback：本地生成结构化提示词
-        return """
-        [场景]: \(input)，高质量画面，电影级光影
-        [角色]: 主角，细节丰富
-        [动作]: 流畅动作，自然表情
-        [风格]: cinematic, 4K, highly detailed
-        [镜头]: 中景，浅景深
-        [氛围]: 根据描述营造
-        """
+        // Fallback：本地生成结构化块（v2: 返回 AssistBlock 而非字符串）
+        return [
+            AssistBlock(type: "scene", content: "\(input)，高质量画面，电影级光影", params: nil),
+            AssistBlock(type: "character", content: "主角，细节丰富", params: nil),
+            AssistBlock(type: "action", content: "流畅动作，自然表情", params: nil),
+            AssistBlock(type: "style", content: "cinematic, 4K, highly detailed", params: GenerationParams(style: "cinematic")),
+            AssistBlock(type: "camera", content: "中景，浅景深", params: nil),
+            AssistBlock(type: "mood", content: "根据描述营造", params: nil)
+        ]
+    }
+
+    /// 将 AssistBlock 列表创建为画布 PromptBlock 卡片
+    func createBlocksFromAssist(_ blocks: [AssistBlock], near position: CGPoint) {
+        let startX = position.x
+        let startY = position.y
+        for (i, block) in blocks.enumerated() {
+            let blockType = BlockType(rawValue: block.type) ?? .custom
+            let pos = CGPoint(x: startX + CGFloat(i) * 20, y: startY + CGFloat(i) * 100)
+            var promptBlock = PromptBlock(type: blockType, content: block.content, position: pos)
+            if let params = block.params {
+                promptBlock.params = params
+            }
+            promptBlocks.append(promptBlock)
+        }
+    }
+
+    // MARK: - Project Sync (v2)
+
+    /// 从云端 Project 恢复画布状态
+    func syncFromProject(_ project: Project) {
+        self.projectId = UUID(uuidString: project.id)
+        guard let cd = project.canvas_data else { return }
+
+        // 重建 PromptBlocks
+        promptBlocks = cd.prompt_blocks.map { dto in
+            let pos = CGPoint(x: 0, y: 0) // canvas_data 不含 position，后续可扩展
+            return PromptBlock(type: BlockType(rawValue: dto.type) ?? .custom,
+                               content: dto.content, position: pos, params: dto.params ?? GenerationParams())
+        }
+
+        // 重建 MediaOutputs
+        mediaOutputs = cd.media_outputs.map { dto in
+            var node = MediaOutputNode(
+                position: CGPoint(x: 0, y: 0),
+                contentType: NodeContentType(rawValue: dto.content_type) ?? .video)
+            if let tid = UUID(uuidString: dto.task_id ?? "") { node.taskId = tid }
+            return node
+        }
+
+        // 重建 ReferenceNodes
+        referenceNodes = cd.reference_nodes.map { dto in
+            ReferenceNode(position: CGPoint(x: 0, y: 0),
+                          mediaType: ReferenceMediaType(rawValue: dto.media_type) ?? .image,
+                          sourceLabel: dto.source_label)
+        }
+
+        // 重建 Connections
+        connections = cd.connections.compactMap { dto in
+            guard let sId = UUID(uuidString: dto.source_id),
+                  let tId = UUID(uuidString: dto.target_id) else { return nil }
+            return BlockConnection(sourceId: sId, targetId: tId)
+        }
+    }
+
+    /// 序列化当前画布为 CanvasData（用于 project sync）
+    func exportCanvasData() -> CanvasData {
+        CanvasData(
+            prompt_blocks: promptBlocks.map { PromptBlockDTO(from: $0) },
+            media_outputs: mediaOutputs.map { MediaOutputDTO(
+                id: $0.id.uuidString, position: CGPointDTO(x: $0.position.x, y: $0.position.y),
+                content_type: $0.contentType.rawValue, task_id: $0.taskId?.uuidString,
+                status: String(describing: $0.status), progress: $0.progress,
+                prompt_summary: $0.promptSummary, preview_frames: $0.previewFrames) },
+            reference_nodes: referenceNodes.map { ReferenceNodeDTO(
+                id: $0.id.uuidString, position: CGPointDTO(x: $0.position.x, y: $0.position.y),
+                media_type: $0.mediaType == .image ? "image" : "video",
+                source_label: $0.sourceLabel) },
+            ai_enhance_nodes: aiEnhanceNodes.map { AIEnhanceDTO(
+                id: $0.id.uuidString, position: CGPointDTO(x: $0.position.x, y: $0.position.y),
+                input_text: $0.inputText, output_text: $0.outputText,
+                status: String(describing: $0.status)) },
+            connections: connections.map { BlockConnectionDTO(from: $0) },
+            viewport: nil
+        )
     }
 
     // MARK: - Auto Layout
@@ -309,12 +394,22 @@ final class CanvasViewModel {
 
     // MARK: - Generation Flow
 
+    // MARK: - Input Collection
+
+    /// 收集结果类型（v2 扩展）
+    struct CollectedInputs {
+        var promptBlocks: [PromptBlock] = []
+        var connections: [BlockConnection] = []
+        var upstreamText: String = ""
+        var upstreamResults: [UpstreamResultDTO] = []
+        var refAssets: [ReferenceAssetDTO] = []
+        var aiTexts: [String] = []
+    }
+
     /// 追溯连线，收集所有连接到输出节点的输入（提示词 + AI + 上游结果 + 参考图）
-    private func collectInputs(from outputNodeId: UUID) -> (promptBlocks: [PromptBlock], upstreamText: String, refImagesBase64: [String]) {
+    private func collectInputs(from outputNodeId: UUID) -> CollectedInputs {
         var visited: Set<UUID> = []
-        var blocks: [PromptBlock] = []
-        var upstreamTexts: [String] = []
-        var refImages: [String] = []
+        var result = CollectedInputs()
         var queue: [UUID] = [outputNodeId]
 
         while let current = queue.popLast() {
@@ -323,54 +418,58 @@ final class CanvasViewModel {
 
             for conn in connections where conn.targetId == current {
                 queue.append(conn.sourceId)
+                result.connections.append(conn)
 
                 // 提示词卡片
                 if let block = promptBlocks.first(where: { $0.id == conn.sourceId }) {
-                    blocks.append(block)
+                    result.promptBlocks.append(block)
                 }
                 // AI 增强节点
                 if let ai = aiEnhanceNodes.first(where: { $0.id == conn.sourceId }), !ai.outputText.isEmpty {
-                    blocks.append(PromptBlock(type: .custom, content: ai.outputText, position: ai.position))
+                    result.promptBlocks.append(PromptBlock(type: .custom, content: ai.outputText, position: ai.position))
+                    result.aiTexts.append(ai.outputText)
                 }
                 // 上游结果节点（文本/图片/视频）
                 if let upstream = mediaOutputs.first(where: { $0.id == conn.sourceId }), upstream.hasOutput {
-                    upstreamTexts.append(upstream.asInputText)
+                    result.upstreamText += (result.upstreamText.isEmpty ? "" : "\n") + upstream.asInputText
+                    // v2: 结构化上游引用
+                    var dto = UpstreamResultDTO(node_id: conn.sourceId.uuidString,
+                        content_type: upstream.contentType.rawValue, text: nil, asset_id: nil)
+                    switch upstream.contentType {
+                    case .text:
+                        dto.text = upstream.textContent
+                    case .image:
+                        dto.asset_id = nil // TODO: 上传图片后填充
+                    case .video:
+                        dto.asset_id = nil // TODO: 上传视频后填充
+                    }
+                    result.upstreamResults.append(dto)
                 }
-                // 参考素材节点 → base64 编码
+                // 参考素材节点 → asset_id 引用
                 if let ref = referenceNodes.first(where: { $0.id == conn.sourceId }),
-                   !ref.localPath.isEmpty,
-                   let data = try? Data(contentsOf: URL(fileURLWithPath: ref.localPath)) {
-                    let b64 = data.base64EncodedString()
-                    let prefix = ref.mediaType == .image ? "data:image/jpeg;base64," : "data:video/mp4;base64,"
-                    refImages.append(prefix + b64)
+                   !ref.localPath.isEmpty {
+                    result.refAssets.append(ReferenceAssetDTO(
+                        asset_id: ref.id.uuidString, // 客户端 ID 占位，后续上传
+                        usage: ref.mediaType == .image ? "style_reference" : "motion_reference"))
                 }
             }
         }
-        return (blocks, upstreamTexts.joined(separator: "\n"), refImages)
+        return result
     }
 
-    /// 提交生成任务
+    /// 提交生成任务 — v2 优先（结构化提交），fallback v1（扁平 prompt）
     @MainActor
     func submitGeneration(outputNodeId: UUID, client: APIClient, ws: WebSocketClient) async {
         guard let idx = mediaOutputs.firstIndex(where: { $0.id == outputNodeId }) else { return }
 
-        let inputs = collectInputs(from: outputNodeId)
-        guard !inputs.promptBlocks.isEmpty || !inputs.upstreamText.isEmpty else {
+        let collected = collectInputs(from: outputNodeId)
+        guard !collected.promptBlocks.isEmpty || !collected.upstreamText.isEmpty else {
             resultMessage = "请先将提示词卡片或结果节点连线到输出节点"
             return
         }
 
-        var finalPrompt = PromptSerializer.serialize(inputs.promptBlocks)
-        if !inputs.upstreamText.isEmpty {
-            finalPrompt += "\n\n[参考上下文]:\n\(inputs.upstreamText)"
-        }
-
-        // 收集参数：卡片 params + 参考图 base64
-        let cardParams = inputs.promptBlocks.first(where: { !$0.params.isEmpty })?.params
-        var extraParams: [String: Any] = [:]
-        if !inputs.refImagesBase64.isEmpty {
-            extraParams["reference_images"] = inputs.refImagesBase64
-        }
+        let outputContentType = mediaOutputs[idx].contentType.rawValue
+        let cardParams: GenerationParams? = collected.promptBlocks.first(where: { !$0.params.isEmpty })?.params
 
         isSubmitting = true
         resultMessage = nil
@@ -379,15 +478,37 @@ final class CanvasViewModel {
         highlightedNodeId = outputNodeId
 
         do {
-            let task = try await client.createTask(prompt: finalPrompt, params: cardParams, extraParams: extraParams)
-            mediaOutputs[idx].taskId = task.id
-            mediaOutputs[idx].promptSummary = finalPrompt
+            let task: TaskModel
 
-            // 订阅 WS 实时进度
-            let stream = await ws.connect(taskId: task.id)
-            for await event in stream {
-                await MainActor.run {
-                    handleWSEvent(event, outputNodeId: outputNodeId)
+            // v2: 尝试结构化提交
+            let v2Request = GenerateRequest(
+                project_id: projectId?.uuidString,
+                output_node_id: outputNodeId.uuidString,
+                output_content_type: outputContentType,
+                blocks: collected.promptBlocks.map { PromptBlockDTO(from: $0) },
+                connections: collected.connections.map { BlockConnectionDTO(from: $0) },
+                reference_assets: collected.refAssets,
+                upstream_context: collected.upstreamResults,
+                ai_enhance_context: collected.aiTexts,
+                output_params: cardParams
+            )
+
+            let v2Response = try await client.generate(request: v2Request)
+            task = v2Response.task
+
+            mediaOutputs[idx].taskId = task.id
+            mediaOutputs[idx].promptSummary = task.prompt
+
+            // 项目级 WS
+            if let pid = projectId {
+                usingProjectWS = true
+                let stream = await ws.connectProject(projectId: pid)
+                for await event in stream {
+                    await MainActor.run {
+                        if event.outputNodeId == outputNodeId.uuidString || event.outputNodeId == nil {
+                            handleV2WSEvent(event, outputNodeId: outputNodeId)
+                        }
+                    }
                 }
             }
         } catch {
@@ -398,34 +519,69 @@ final class CanvasViewModel {
         }
 
         isSubmitting = false
+        usingProjectWS = false
     }
 
-    private func handleWSEvent(_ event: WSEvent, outputNodeId: UUID) {
+    // MARK: - WS Event Handler
+
+    /// 类型化事件处理（项目级 WS）
+    private func handleV2WSEvent(_ event: ProjectWSEvent, outputNodeId: UUID) {
         guard let idx = mediaOutputs.firstIndex(where: { $0.id == outputNodeId }) else { return }
 
-        switch event.type {
-        case "status_change":
-            break // 状态跟随 progress/completed/error 变化
-        case "progress":
-            if let p = event.progressValue {
-                mediaOutputs[idx].progress = p
+        switch event {
+        case .connected(let payload):
+            // 快照：恢复所有活跃任务状态
+            for info in payload.snapshot.active_tasks {
+                if info.output_node_id == outputNodeId.uuidString {
+                    mediaOutputs[idx].progress = info.progress
+                }
             }
-        case "preview":
-            if let frame = event.data?["frame"]?.stringValue {
-                mediaOutputs[idx].previewFrames.append(frame)
+        case .taskStatus(let payload):
+            // 将后端 TaskStatus 映射到 OutputStatus
+            switch payload.status {
+            case "queued", "running", "generating":
+                mediaOutputs[idx].status = .generating
+            case "completed":
+                mediaOutputs[idx].status = .completed
+            case "failed":
+                mediaOutputs[idx].status = .failed
+            case "cancelled":
+                mediaOutputs[idx].status = .idle
+            default:
+                break
             }
-        case "completed":
+        case .taskProgress(let payload):
+            if payload.output_node_id == outputNodeId.uuidString {
+                mediaOutputs[idx].progress = payload.progress
+            }
+        case .taskPreview(let payload):
+            if payload.output_node_id == outputNodeId.uuidString {
+                // 提取预览帧文件名
+                let frameName = URL(string: payload.frame_url)?.lastPathComponent ?? payload.frame_url
+                mediaOutputs[idx].previewFrames.append(frameName)
+            }
+        case .taskCompleted(let payload):
             mediaOutputs[idx].status = .completed
             mediaOutputs[idx].progress = 100
             highlightedNodeId = nil
             resultMessage = "生成完成"
-        case "error":
+            // 存储 result_url
+            if let urlStr = payload.result_url {
+                mediaOutputs[idx].videoLocalPath = urlStr
+            }
+        case .taskFailed(let payload):
             mediaOutputs[idx].status = .failed
-            mediaOutputs[idx].errorMessage = event.errorMessage
+            mediaOutputs[idx].errorMessage = payload.error_message
             highlightedNodeId = nil
-            resultMessage = event.errorMessage
-        default:
-            break
+            resultMessage = payload.error_message
+        case .taskCancelled:
+            mediaOutputs[idx].status = .idle
+            highlightedNodeId = nil
+        case .error(let payload):
+            mediaOutputs[idx].status = .failed
+            mediaOutputs[idx].errorMessage = payload.message
+            highlightedNodeId = nil
+            resultMessage = payload.message
         }
     }
 }

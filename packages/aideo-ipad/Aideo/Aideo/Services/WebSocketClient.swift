@@ -2,24 +2,27 @@ import Foundation
 
 // MARK: - Client
 
-/// WebSocket 客户端 — 封装 aideo-serv 实时进度连接
+/// WebSocket 客户端 — 封装 aideo-serv 项目级实时进度连接
 actor WebSocketClient {
     private let serverURL: String
-    private var activeTasks: [UUID: URLSessionWebSocketTask] = [:]
-    private var activeSessions: [UUID: URLSession] = [:]
+    private var projectTask: URLSessionWebSocketTask?
+    private var projectSession: URLSession?
 
     init(serverURL: String) {
         self.serverURL = serverURL
     }
 
-    /// 连接指定任务的 WebSocket，返回 AsyncStream<WSEvent>
-    func connect(taskId: UUID) -> AsyncStream<WSEvent> {
+    // MARK: - Project-Level WebSocket
+
+    /// 连接项目 WebSocket，单连接承载项目内所有任务事件。
+    /// 发送 connected 快照 + 流式推送类型化事件。
+    func connectProject(projectId: UUID) -> AsyncStream<ProjectWSEvent> {
         AsyncStream { continuation in
             let wsURL = serverURL
                 .replacingOccurrences(of: "http://", with: "ws://")
                 .replacingOccurrences(of: "https://", with: "wss://")
 
-            guard let url = URL(string: "\(wsURL)/api/v1/ws/tasks/\(taskId.uuidString)") else {
+            guard let url = URL(string: "\(wsURL)/api/v1/ws/projects/\(projectId.uuidString)") else {
                 continuation.finish()
                 return
             }
@@ -27,44 +30,40 @@ actor WebSocketClient {
             let session = URLSession(configuration: .default)
             let task = session.webSocketTask(with: url)
 
-            activeSessions[taskId] = session
-            activeTasks[taskId] = task
+            projectSession = session
+            projectTask = task
 
             task.resume()
 
-            // 启动消息接收循环
             Task { [weak self] in
-                await self?.receiveLoop(taskId: taskId, task: task, continuation: continuation)
+                await self?.projectReceiveLoop(projectId: projectId, task: task, continuation: continuation)
             }
         }
     }
 
-    /// 断开指定任务连接
-    func disconnect(taskId: UUID) {
-        activeTasks[taskId]?.cancel(with: .normalClosure, reason: nil)
-        activeTasks[taskId] = nil
-        activeSessions[taskId] = nil
+    /// 断开项目 WebSocket
+    func disconnectProject() {
+        projectTask?.cancel(with: .normalClosure, reason: nil)
+        projectTask = nil
+        projectSession = nil
     }
 
     /// 断开所有连接
     func disconnectAll() {
-        for (_, wsTask) in activeTasks {
-            wsTask.cancel(with: .normalClosure, reason: nil)
-        }
-        activeTasks.removeAll()
-        activeSessions.removeAll()
+        disconnectProject()
     }
 
-    // MARK: - Private
+    // MARK: - Private: Project Receive Loop
 
-    private func receiveLoop(
-        taskId: UUID,
+    private let v2EventDecoder = ProjectWSEventDecoder()
+
+    private func projectReceiveLoop(
+        projectId: UUID,
         task: URLSessionWebSocketTask,
-        continuation: AsyncStream<WSEvent>.Continuation
+        continuation: AsyncStream<ProjectWSEvent>.Continuation
     ) async {
         var retryCount = 0
-        let maxRetries = 5
-        let decoder = JSONDecoder()
+        let maxRetries = 10
 
         while !Task.isCancelled && retryCount < maxRetries {
             do {
@@ -72,21 +71,20 @@ actor WebSocketClient {
 
                 switch message {
                 case .string(let text):
-                    if let data = text.data(using: .utf8),
-                       let event = try? decoder.decode(WSEvent.self, from: data) {
+                    if let event = v2EventDecoder.decode(from: text) {
                         continuation.yield(event)
 
-                        // 终态事件后结束
-                        if event.type == "completed" || event.type == "error" {
-                        continuation.finish()
-                        disconnect(taskId: taskId)
-                        return
+                        if case .error = event {
+                            continuation.finish()
+                            disconnectProject()
+                            return
+                        }
                     }
-                    }
-                    retryCount = 0 // 重置重试计数
+                    retryCount = 0
 
                 case .data(let data):
-                    if let event = try? decoder.decode(WSEvent.self, from: data) {
+                    if let text = String(data: data, encoding: .utf8),
+                       let event = v2EventDecoder.decode(from: text) {
                         continuation.yield(event)
                     }
                     retryCount = 0
@@ -96,13 +94,12 @@ actor WebSocketClient {
                 }
             } catch {
                 retryCount += 1
-                // Exponential backoff
                 let delay = min(1.0 * pow(2.0, Double(retryCount - 1)), 16.0)
                 try? await Task.sleep(for: .seconds(delay))
             }
         }
 
         continuation.finish()
-        disconnect(taskId: taskId)
+        disconnectProject()
     }
 }

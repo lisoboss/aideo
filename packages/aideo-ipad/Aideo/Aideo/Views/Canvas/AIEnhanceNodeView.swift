@@ -8,7 +8,7 @@ struct AIEnhanceNodeView: View {
     let onConnect: () -> Void
     let onUpdate: (AIEnhanceNode) -> Void
     let onResize: (CGSize) -> Void
-    let onProcess: (String) async -> String?  // input → output, nil = error
+    let onProcess: (String) async -> [AssistBlock]?  // input → blocks, nil = error
     let onDrag: (CGPoint) -> Void
 
     @State private var dragOffset: CGSize = .zero
@@ -61,8 +61,10 @@ struct AIEnhanceNodeView: View {
                             let result = await onProcess(text)
                             await MainActor.run {
                                 var done = node; done.inputText = text
-                                if let result {
-                                    done.outputText = result; done.status = .done
+                                if let blocks = result {
+                                    // 格式化为可读字符串展示
+                                    done.outputText = blocks.map { "[\($0.type)]: \($0.content)" }.joined(separator: "\n")
+                                    done.status = .done
                                 } else {
                                     done.status = .error; done.errorMessage = "处理失败"
                                 }

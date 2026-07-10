@@ -23,8 +23,6 @@ Authorization: Bearer <token>
 
 响应：`{ "items": [...], "total": 42, "offset": 0, "limit": 20 }`
 
-> v1 兼容：`GET /tasks` 保留 `tasks` key（非 `items`）。新端点全用 `items`。
-
 ## 错误格式
 
 ```json
@@ -107,27 +105,25 @@ Authorization: Bearer <token>
 
 ### GenerationTask
 
-Task 模型扩展三个字段（`project_id`、`output_node_id`、`prompt_structured`），其余继承 v1：
-
-| 字段 | 类型 | 新增? | 说明 |
-|---|---|---|---|
-| `id` | UUID | — | 任务 ID |
-| `project_id` | UUID \| null | **NEW** | 所属项目 |
-| `output_node_id` | UUID \| null | **NEW** | 触发的画布输出节点 |
-| `prompt` | string | — | 扁平化 prompt（向后兼容） |
-| `prompt_structured` | object \| null | **NEW** | 结构化提交快照（调试/重新生成） |
-| `params` | object \| null | — | 生成参数 |
-| `task_type` | string | — | `video_generation` \| `speech_to_text` \| ... |
-| `status` | enum | — | `queued` → `running` → `generating` → `completed` / `failed` / `cancelled` |
-| `progress` | float | — | 0.0 – 100.0 |
-| `created_at` | datetime | — | |
-| `updated_at` | datetime | — | |
-| `result_path` | string \| null | — | 服务端文件路径 |
-| `result_url` | string \| null | — | 下载 URL |
-| `result_data` | object \| null | — | 内联结果（如转录 JSON） |
-| `previews` | string[] | — | 预览帧 URL 列表 |
-| `error_message` | string \| null | — | 失败原因 |
-| `input_files` | array \| null | — | 输入文件引用 |
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | UUID | 任务 ID |
+| `project_id` | UUID \| null | 所属项目 |
+| `output_node_id` | UUID \| null | 触发的画布输出节点 |
+| `prompt` | string | 序列化后的 prompt |
+| `prompt_structured` | object \| null | 结构化提交快照（调试/重新生成） |
+| `params` | object \| null | 生成参数 |
+| `task_type` | string | `video_generation` \| `speech_to_text` \| ... |
+| `status` | enum | `queued` → `running` → `generating` → `completed` / `failed` / `cancelled` |
+| `progress` | float | 0.0 – 100.0 |
+| `created_at` | datetime | |
+| `updated_at` | datetime | |
+| `result_path` | string \| null | 服务端文件路径 |
+| `result_url` | string \| null | 下载 URL |
+| `result_data` | object \| null | 内联结果（如转录 JSON） |
+| `previews` | string[] | 预览帧 URL 列表 |
+| `error_message` | string \| null | 失败原因 |
+| `input_files` | array \| null | 输入文件引用 |
 
 ### Project
 
@@ -187,11 +183,9 @@ GET /health
 → { "status": "ok", "version": "2.0.0", "services": { "inference": "connected", "storage": "ok" } }
 ```
 
-新增 `version` 和 `services` 状态，供 iPad 健康监控。
-
 ---
 
-### 项目（NEW）
+### 项目
 
 ```
 POST   /projects                        创建项目
@@ -207,7 +201,7 @@ GET    /projects/{id}/assets            项目素材列表（offset/limit + medi
 
 ---
 
-### 素材（NEW）
+### 素材
 
 ```
 POST   /assets                          上传 → 201。multipart/form-data
@@ -222,7 +216,7 @@ DELETE /assets/{id}                     删除文件 → 204
 
 ---
 
-### 生成 — 结构化画布提交（NEW）
+### 生成 — 结构化画布提交
 
 ```
 POST /generate
@@ -276,8 +270,8 @@ POST /generate
 
 **后端行为**：
 1. 按 `scene_tag` 分组 → 多场景提示词结构
-2. 用 block type 做分区头（比 `[Type]: text` 更丰富）
-3. `asset_id` → 文件路径（不再 base64 解码）
+2. 用 block type 做分区头
+3. `asset_id` → 文件路径
 4. task 上写 `prompt_structured`（调试/重新生成用）
 5. 设置 `project_id` 和 `output_node_id`
 6. 若 `ai_provider` ≠ stub，通过 AI 增强优化 prompt
@@ -285,16 +279,7 @@ POST /generate
 
 ---
 
-### 任务（v1 保留 + 扩展）
 
-```
-POST   /tasks                           扁平 prompt（向后兼容, CLI/测试用）
-GET    /tasks                           列表（status/offset/limit，+project_id filter）
-GET    /tasks/{id}                      详情（响应含 project_id/output_node_id/prompt_structured）
-DELETE /tasks/{id}                      取消 → 200。终态任务返回 409
-```
-
----
 
 ### Canvas Assist（NEW — AI 驱动）
 
@@ -438,7 +423,51 @@ AIDEO_AI_MODEL=gpt-4o
 
 ---
 
-### 结果（不变）
+### AI 供应商发现（NEW）
+
+```
+GET /ai/providers
+```
+
+列出所有已配置的 AI 供应商供前端选择。服务端通过 `AIDEO_AI_PROVIDERS` 环境变量配置。
+
+**Response**：
+```json
+{
+  "providers": [
+    {"name": "openai", "model": "gpt-4o", "is_default": true},
+    {"name": "aideo", "model": "aideo-runtime", "is_default": false}
+  ],
+  "default": "openai"
+}
+```
+
+**配置方式**（环境变量）：
+
+```bash
+# 多供应商 JSON（推荐）
+AIDEO_AI_PROVIDERS='[{"name":"openai","type":"openai","base_url":"https://api.openai.com/v1","api_key":"sk-...","model":"gpt-4o"},{"name":"aideo","type":"runtime"}]'
+
+# 或单供应商（兼容）
+AIDEO_AI_PROVIDER=openai
+AIDEO_AI_BASE_URL=https://api.openai.com/v1
+AIDEO_AI_API_KEY=sk-...
+AIDEO_AI_MODEL=gpt-4o
+```
+
+| 供应商 type | 说明 |
+|---|---|
+| `openai` | OpenAI 兼容接口（OpenAI / vLLM / Ollama / Groq / DeepSeek …） |
+| `runtime` | aideo-runtime 的 chat / text_conversation 能力 |
+| `stub` | 无 API key 时的 mock 回退（默认） |
+
+**前端使用**：在 `POST /generate`、`POST /canvas/structure` 等请求中加 `"ai_provider": "openai"` 选择供应商，不传则用服务端默认值。
+
+> `"aideo"` 供应商即使用 aideo-runtime。前端可硬编码此 name，后端通过配置决定走哪个实例。
+
+---
+
+### 结果
 
 ```
 GET /results/{task_id}/download      → video/mp4 或 JSON
@@ -449,7 +478,7 @@ GET /results/{task_id}/preview/{frame} → image/jpeg
 
 ## WebSocket 端点
 
-### `WS /ws/projects/{project_id}`（NEW — 项目级多路复用）
+### `WS /ws/projects/{project_id}` — 项目级多路复用
 
 单连接承载项目内所有任务事件。
 
@@ -474,11 +503,7 @@ GET /results/{task_id}/preview/{frame} → image/jpeg
 
 Close codes：4004=项目不存在, 4005=未授权（未来）
 
-### `WS /ws/tasks/{task_id}`（v1 保留）
-
-向后兼容。新增 `event` discriminator（旧 `{type, data}` 格式迁移期间并行提供）。
-
-### `WS /ws/transcribe`（不变）
+### `WS /ws/transcribe` — 流式语音转写
 
 流式语音转写。二进制音频入，JSON 事件出。
 
@@ -496,7 +521,7 @@ WS   /ws/internal/inference        推理服务注册 + 消息路由
 ## API 总结
 
 ```
-新增（17个端点 + 2个WS）                   保留（不变）
+新增（16个端点 + 1个WS）                   保留（不变）
 ─────────────────────────               ─────────────────
 POST   /projects                       GET    /health
 GET    /projects                       POST   /tasks
@@ -517,19 +542,6 @@ GET    /ai/providers
 WS     /ws/projects/{id}
 ```
 
-## 关键设计变更
-
-| 旧模式 | 新模式 | 收益 |
-|---|---|---|
-| base64 图片进 JSON | asset_id 引用 | 33% 体积省了，可去重 |
-| 每输出节点独立 WS | 单项目 WS 多路复用 | N→1 连接 |
-| 泛型 `{type, data}` 事件 | 类型化 `task.progress` 等 | 编译期安全，消灭 AnyCodable |
-| 客户端 PromptSerializer | 后端结构化序列化 | 后端持有 prompt 格式 |
-| 客户端 BFS + base64 编码 | 客户端发子图结构，后端解析资产 | 职责分离 |
-| 硬编码 stub 响应 | 统一 AI 供应商接口（openai/aideo/stub） | 前端可选，在线/本地方便切换 |
-| 无 AI 发现 | `GET /ai/providers` | 前端动态获取可用供应商列表 |
-| 原始 prompt 直发推理 | AI 增强 prompt 后提交 | 生成质量提升 |
-
 ## 状态机
 
 ```
@@ -541,13 +553,3 @@ queued ──→ running ──→ generating ──→ completed
 ```
 
 终态：`completed`、`failed`、`cancelled`。
-
-## iPad 迁移路径
-
-1. `POST /tasks` → `POST /generate`（结构化提交）
-2. base64 → `POST /assets` + asset_id 引用
-3. `ws/tasks/{id}` → `ws/projects/{id}`
-4. 本地 SwiftData → Project CRUD 云端同步
-5. 硬编码 fallback → `/canvas/*` AI 驱动端点
-6. `GET /ai/providers` → 前端供应商选择器（deepseek / openai / aideo）
-7. 移除 `PromptSerializer.swift` + `AnyCodable`

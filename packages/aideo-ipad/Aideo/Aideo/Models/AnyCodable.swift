@@ -1,41 +1,9 @@
 import Foundation
 
-/// WebSocket 实时推送事件
-struct WSEvent: Codable, Identifiable, @unchecked Sendable {
-    var id: String { "\(type)-\(timestamp.timeIntervalSince1970)" }
+// MARK: - AnyCodable (用于动态 JSON 字段：metadata、result_data、prompt_structured)
 
-    let type: String            // status_change | progress | preview | completed | error
-    let taskId: String
-    let data: [String: AnyCodable]?
-    let timestamp: Date
-
-    enum CodingKeys: String, CodingKey {
-        case type
-        case taskId = "task_id"
-        case data
-        case timestamp
-    }
-
-    /// 从 data 字典提取进度值
-    var progressValue: Double? {
-        data?["progress"]?.doubleValue
-    }
-
-    /// 从 data 字典提取状态值
-    var statusValue: String? {
-        data?["status"]?.stringValue
-    }
-
-    /// 从 data 字典提取错误消息
-    var errorMessage: String? {
-        data?["message"]?.stringValue
-    }
-}
-
-// MARK: - AnyCodable (用于解码动态 JSON)
-
-/// 支持解码任意 JSON 值的包装器
-enum AnyCodable: Codable {
+/// 支持解码任意 JSON 值的包装器。用于 v2 模型中的动态字段。
+enum AnyCodable: Codable, Sendable {
     case string(String)
     case int(Int)
     case double(Double)
@@ -53,6 +21,9 @@ enum AnyCodable: Codable {
         case .int(let v): return Double(v)
         default: return nil
         }
+    }
+    var intValue: Int? {
+        if case .int(let v) = self { return v }; return nil
     }
 
     init(from decoder: Decoder) throws {
