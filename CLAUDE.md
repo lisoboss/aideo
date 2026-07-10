@@ -12,14 +12,15 @@ Aideo — AI Video Generator Studio. uv workspace monorepo.
 ## Quick Commands
 
 ```bash
-uv sync --all-packages                   # sync workspace
-uv run pytest                            # all tests (103)
-uv run --package aideo-serv pytest -v    # serv tests only
-uv run --package aideo-serv aideo-serv   # start API server
-uv run --package ltx2-service ltx2-server # start inference
+uv sync --all-packages                     # sync workspace
+uv run pytest                              # all tests (108)
+uv run --package aideo-serv pytest -v      # serv tests only
+uv run --package aideo-serv aideo-serv     # start API server
+uv run --package aideo-runtime aideo-runtime  # start inference runtime
 uv run --package aideo-cli aideo submit "prompt"  # CLI
-uv add --package aideo-serv <pkg>        # add dep
-uv add --dev <pkg>                       # add shared dev dep
+uv run --package aideo-cli aideo transcribe audio.wav  # speech-to-text
+uv add --package aideo-serv <pkg>          # add dep
+uv add --dev <pkg>                         # add shared dev dep
 ```
 
 ## Rules
