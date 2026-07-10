@@ -41,13 +41,8 @@ actor APIClient {
 
     // MARK: - Health
 
-    func healthCheck() async -> Bool {
-        do {
-            let _: [String: String] = try await get("/api/v1/health")
-            return true
-        } catch {
-            return false
-        }
+    func healthCheck() async -> HealthInfo? {
+        try? await get("/api/v1/health")
     }
 
     // MARK: - Generate (v2 结构化画布提交)
@@ -124,22 +119,36 @@ actor APIClient {
     // MARK: - Canvas Assist (v2)
 
     /// 自由文本 → 类型化 PromptBlock 数组
-    func structurize(description: String) async throws -> StructurizeResponse {
-        try await post("/api/v1/canvas/structure", body: ["description": description])
+    func structurize(description: String, aiProvider: String? = nil, language: String? = nil) async throws -> StructurizeResponse {
+        var body: [String: Any] = ["description": description]
+        if let provider = aiProvider { body["ai_provider"] = provider }
+        if let lang = language { body["language"] = lang }
+        return try await post("/api/v1/canvas/structure", body: body)
     }
 
     /// 上下文补全 — 返回结构化建议组
-    func complete(context: String, mode: String = "suggestion", existingBlocks: [PromptBlockDTO]? = nil) async throws -> CompletionResponse {
+    func complete(context: String, mode: String = "suggestion", existingBlocks: [PromptBlockDTO]? = nil, aiProvider: String? = nil, language: String? = nil) async throws -> CompletionResponse {
         var body: [String: Any] = ["context": context, "mode": mode]
         if let blocks = existingBlocks { body["existing_blocks"] = try encoder.asDictionary(blocks) }
+        if let provider = aiProvider { body["ai_provider"] = provider }
+        if let lang = language { body["language"] = lang }
         return try await post("/api/v1/canvas/complete", body: body)
     }
 
     /// 主题灵感 — 返回含 blocks 的主题列表
-    func inspire(theme: String? = nil) async throws -> InspireResponse {
+    func inspire(theme: String? = nil, aiProvider: String? = nil, language: String? = nil) async throws -> InspireResponse {
         var body: [String: Any] = [:]
         if let theme { body["theme"] = theme }
+        if let provider = aiProvider { body["ai_provider"] = provider }
+        if let lang = language { body["language"] = lang }
         return try await post("/api/v1/canvas/inspire", body: body)
+    }
+
+    // MARK: - AI Providers (v2)
+
+    /// 列出所有已配置的 AI 供应商
+    func listAIProviders() async throws -> AIProvidersResponse {
+        try await get("/api/v1/ai/providers")
     }
 
     // MARK: - Results

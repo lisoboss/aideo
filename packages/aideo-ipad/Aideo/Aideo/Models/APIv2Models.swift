@@ -56,12 +56,14 @@ struct GenerateRequest: Codable, Sendable {
     var upstream_context: [UpstreamResultDTO] = []
     var ai_enhance_context: [String] = []
     var output_params: GenerationParams? = nil
+    var ai_provider: String? = nil
+    var language: String? = nil  // 生成文本主语言（zh/en/ja/ko），nil=自动
 
     enum CodingKeys: String, CodingKey {
         case project_id, output_node_id, output_content_type
         case blocks, connections
         case reference_assets, upstream_context, ai_enhance_context
-        case output_params
+        case output_params, ai_provider, language
     }
 }
 
@@ -154,6 +156,27 @@ struct AssetListResponse: Codable, Sendable {
     let total: Int
     let offset: Int
     let limit: Int
+}
+
+// MARK: - Health
+
+struct HealthInfo: Codable, Sendable {
+    let status: String
+    let version: String?
+    let services: [String: String]?
+}
+
+// MARK: - AI Providers
+
+struct AIProvider: Codable, Sendable {
+    let name: String
+    let model: String
+    let is_default: Bool
+}
+
+struct AIProvidersResponse: Codable, Sendable {
+    let providers: [AIProvider]
+    let `default`: String
 }
 
 // MARK: - Project WebSocket Events (v2 typed)

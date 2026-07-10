@@ -198,9 +198,9 @@ final class CanvasViewModel {
     // MARK: - AI Enhance (v2)
 
     /// v2: 调用 /canvas/structure，返回 [AssistBlock] 直接落画布
-    func processAIEnhance(input: String, client: APIClient) async -> [AssistBlock]? {
+    func processAIEnhance(input: String, client: APIClient, language: String? = nil) async -> [AssistBlock]? {
         // 尝试调用后端 API
-        if let response = try? await client.structurize(description: input) {
+        if let response = try? await client.structurize(description: input, language: language) {
             return response.blocks
         }
         // Fallback：本地生成结构化块（v2: 返回 AssistBlock 而非字符串）
@@ -459,7 +459,7 @@ final class CanvasViewModel {
 
     /// 提交生成任务 — v2 优先（结构化提交），fallback v1（扁平 prompt）
     @MainActor
-    func submitGeneration(outputNodeId: UUID, client: APIClient, ws: WebSocketClient) async {
+    func submitGeneration(outputNodeId: UUID, client: APIClient, ws: WebSocketClient, language: String? = nil) async {
         guard let idx = mediaOutputs.firstIndex(where: { $0.id == outputNodeId }) else { return }
 
         let collected = collectInputs(from: outputNodeId)
@@ -481,7 +481,7 @@ final class CanvasViewModel {
             let task: TaskModel
 
             // v2: 尝试结构化提交
-            let v2Request = GenerateRequest(
+            var v2Request = GenerateRequest(
                 project_id: projectId?.uuidString,
                 output_node_id: outputNodeId.uuidString,
                 output_content_type: outputContentType,
@@ -492,6 +492,7 @@ final class CanvasViewModel {
                 ai_enhance_context: collected.aiTexts,
                 output_params: cardParams
             )
+            v2Request.language = language  // 从 AppState 传入
 
             let v2Response = try await client.generate(request: v2Request)
             task = v2Response.task

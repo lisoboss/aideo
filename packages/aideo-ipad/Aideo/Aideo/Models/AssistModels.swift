@@ -4,6 +4,8 @@ import Foundation
 
 struct StructurizeRequest: Codable, Sendable {
     let description: String
+    let ai_provider: String?
+    let language: String?  // zh/en/ja/ko，nil=自动
 }
 
 struct StructurizeResponse: Codable, Sendable {
@@ -21,8 +23,10 @@ struct AssistBlock: Codable, Sendable {
 
 struct CompletionRequest: Codable, Sendable {
     let context: String
-    let mode: String             // "suggestion" | "completion"
-    let existing_blocks: [PromptBlockDTO]?  // v2: 当前画布卡片上下文
+    let mode: String
+    let existing_blocks: [PromptBlockDTO]?
+    let ai_provider: String?
+    let language: String?
 }
 
 struct CompletionResponse: Codable, Sendable {
@@ -39,6 +43,8 @@ struct CompletionSuggestion: Codable, Sendable {
 
 struct InspireRequest: Codable, Sendable {
     let theme: String?
+    let ai_provider: String?
+    let language: String?
 }
 
 struct InspireResponse: Codable, Sendable {

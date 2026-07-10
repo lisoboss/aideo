@@ -13,6 +13,7 @@ struct ProjectListView: View {
     @State private var showSettings = false
 
     var body: some View {
+        @Bindable var appState = appState
         @Bindable var viewModel = viewModel
 
         List(selection: Binding(
@@ -64,20 +65,29 @@ struct ProjectListView: View {
 
             // 连接状态
             Section {
-                HStack {
-                    Circle()
-                        .fill(appState.isConnected ? Color.green : Color.red)
-                        .frame(width: 8, height: 8)
-                    Text(appState.isConnected ? "已连接" : "未连接")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if appState.isCheckingHealth {
-                        ProgressView()
-                            .scaleEffect(0.6)
+                Button {
+                    appState.showHealthSheet = true
+                } label: {
+                    HStack {
+                        Circle()
+                            .fill(appState.isConnected ? Color.green : Color.red)
                             .frame(width: 8, height: 8)
+                        Text(appState.isConnected ? "已连接" : "未连接")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        if appState.isCheckingHealth {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .frame(width: 8, height: 8)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
                 }
+                .buttonStyle(.plain)
 
                 if let lastCheck = appState.lastCheckTime {
                     Text("上次检查 \(lastCheck.formatted(.relative(presentation: .numeric)))")
@@ -98,6 +108,9 @@ struct ProjectListView: View {
             }
         }
         .listStyle(.sidebar)
+        .sheet(isPresented: $appState.showHealthSheet) {
+            HealthSheetView()
+        }
         .navigationTitle("Aideo")
         .safeAreaInset(edge: .bottom) {
             Button {
@@ -150,6 +163,19 @@ private struct SettingsSheet: View {
                         .keyboardType(.URL)
                         .autocapitalization(.none)
                         .onAppear { serverURL = appState.serverURL }
+                }
+
+                Section("AI 语言偏好") {
+                    Picker("生成语言", selection: Binding(
+                        get: { appState.language ?? "" },
+                        set: { appState.language = $0.isEmpty ? nil : $0 }
+                    )) {
+                        Text("自动检测").tag("")
+                        Text("中文").tag("zh")
+                        Text("English").tag("en")
+                        Text("日本語").tag("ja")
+                        Text("한국어").tag("ko")
+                    }
                 }
 
                 Section {

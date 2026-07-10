@@ -25,6 +25,10 @@ final class AppState {
     var isConnected: Bool = false
     var isCheckingHealth: Bool = false
 
+    /// v2: 健康检查详情（版本号 + 各服务状态）
+    var healthInfo: HealthInfo?
+    var showHealthSheet: Bool = false
+
     /// 健康检查间隔
     var healthCheckInterval: TimeInterval = 30.0
 
@@ -36,6 +40,12 @@ final class AppState {
 
     /// v2: 当前云端项目 ID，用于项目级 WS 和同步
     var currentProjectId: UUID?
+
+    /// 语言偏好（传给 AI assist/generate 端点）。nil = 自动检测
+    var language: String? {
+        get { UserDefaults.standard.string(forKey: "ai_language") }
+        set { UserDefaults.standard.set(newValue, forKey: "ai_language") }
+    }
 
     /// 私有轮询 Task
     private var monitorTask: Task<Void, Never>?
@@ -69,8 +79,13 @@ final class AppState {
             isCheckingHealth = false
             lastCheckTime = Date()
         }
-        let success = await apiClient.healthCheck()
-        isConnected = success
-        consecutiveFailures = success ? 0 : consecutiveFailures + 1
+        if let info = await apiClient.healthCheck() {
+            healthInfo = info
+            isConnected = info.status == "ok"
+            consecutiveFailures = 0
+        } else {
+            isConnected = false
+            consecutiveFailures += 1
+        }
     }
 }

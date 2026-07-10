@@ -286,7 +286,8 @@ struct CanvasView: View {
                     Task { await vm.submitGeneration(
                         outputNodeId: outputNode.id,
                         client: appState.apiClient,
-                        ws: appState.wsClient
+                        ws: appState.wsClient,
+                        language: appState.language
                     )}
                 },
                 onDownload: {
@@ -335,7 +336,7 @@ struct CanvasView: View {
                 onConnect: { vm.toggleConnecting(nodeId: aiNode.id) },
                 onUpdate: { vm.updateAIEnhanceNode(id: aiNode.id, with: $0) },
                 onResize: { vm.updateNodeSize(id: aiNode.id, size: $0) },
-                onProcess: { input in await vm.processAIEnhance(input: input, client: appState.apiClient) },
+                onProcess: { input in await vm.processAIEnhance(input: input, client: appState.apiClient, language: appState.language) },
                 onDrag: { vm.moveNode(id: aiNode.id, to: $0) }
             )
         }
