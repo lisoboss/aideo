@@ -7,12 +7,10 @@ from uuid import UUID
 from aideo_serv.config import Settings
 from aideo_serv.dependencies import (
     get_ai_client,
-    get_inference_manager,
     get_project_service,
     get_task_service,
 )
 from aideo_serv.models.error import error_response
-from aideo_serv.models.events import InferenceMessage
 from aideo_serv.models.generate import GenerateRequest, GenerateResponse
 from aideo_serv.models.task import TaskStatus
 from aideo_serv.services.ai_client import AIClient
@@ -40,63 +38,8 @@ _ENHANCE_LANG = {
 }
 _ENHANCE_AUTO_LANG = "You MUST write the enhanced prompt in the same language as the input prompt. Detect the language from the prompt and use it for all enhanced content."
 
-# Service-type routing table (shared with tasks.py)
-_SERVICE_FOR_TASK_TYPE: dict[str, str] = {
-    "video_generation": "aideo-runtime",
-    "speech_to_text": "aideo-runtime",
-    "text_conversation": "aideo-runtime",
-    "image_to_text": "aideo-runtime",
-}
-
-
-def _resolve_service(task_type: str | None) -> str:
-    return _SERVICE_FOR_TASK_TYPE.get(task_type or "video_generation", "ltx2")
-
-
-async def _submit_to_inference(
-    task_id: UUID,
-    prompt: str,
-    params: dict | None,
-    task_type: str = "video_generation",
-    input_files: list[dict] | None = None,
-) -> None:
-    """Transition task through RUNNING → GENERATING, then dispatch via WebSocket."""
-    from aideo_serv.dependencies import get_inference_manager, get_task_service
-
-    svc = get_task_service()
-    mgr = get_inference_manager()
-    settings = Settings()
-
-    service_type = _resolve_service(task_type)
-
-    if not mgr.is_connected(service_type):
-        logger.warning(
-            "Inference service '%s' not connected, failing task %s", service_type, task_id
-        )
-        svc.fail(task_id, f"Inference service '{service_type}' is not connected")
-        return
-
-    try:
-        svc.update_status(task_id, TaskStatus.RUNNING.value)
-        svc.update_status(task_id, TaskStatus.GENERATING.value)
-
-        msg = InferenceMessage(
-            type="task_submit",
-            task_id=str(task_id),
-            task_type=task_type,
-            data={
-                "prompt": prompt,
-                "params": params or {},
-                "model_root": settings.model_root,
-                "output_root": settings.output_root,
-                "input_root": settings.input_root,
-                "input_files": input_files or [],
-            },
-        )
-        await mgr.send_to_service(service_type, msg)
-    except Exception as exc:
-        logger.exception("Failed to submit task %s to inference", task_id)
-        svc.fail(task_id, str(exc))
+# Reuse the inference submission helper from tasks.py
+from aideo_serv.api.tasks import _submit_to_inference
 
 
 @generate_router.post("/generate", status_code=201)

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     server_host: str = "0.0.0.0"
     server_port: int = 8000
-    inference_url: str = "http://localhost:9090"
+    runtime_url: str = "http://localhost:9090"
     storage_base_dir: str = "./data"
     cors_origins: list[str] = ["*"]
 

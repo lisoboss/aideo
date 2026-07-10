@@ -22,11 +22,11 @@ class TestSettingsDefaults:
         s = Settings()
         assert s.storage_base_dir == "./data"
 
-    def test_default_inference_url_is_set(self):
+    def test_default_runtime_url_is_set(self):
         from aideo_serv.config import Settings
 
         s = Settings()
-        assert s.inference_url.startswith("http")
+        assert s.runtime_url.startswith("http")
 
     def test_default_cors_origins(self):
         from aideo_serv.config import Settings
@@ -50,12 +50,12 @@ class TestSettingsFromEnv:
         s = Settings()
         assert s.server_port == 9000
 
-    def test_inference_url_from_env(self, monkeypatch):
+    def test_runtime_url_from_env(self, monkeypatch):
         from aideo_serv.config import Settings
 
-        monkeypatch.setenv("AIDEO_INFERENCE_URL", "http://gpu-box:9090")
+        monkeypatch.setenv("AIDEO_RUNTIME_URL", "http://gpu-box:9090")
         s = Settings()
-        assert s.inference_url == "http://gpu-box:9090"
+        assert s.runtime_url == "http://gpu-box:9090"
 
     def test_storage_base_dir_from_env(self, monkeypatch):
         from aideo_serv.config import Settings

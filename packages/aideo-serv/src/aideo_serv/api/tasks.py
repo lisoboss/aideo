@@ -5,10 +5,10 @@ import logging
 from uuid import UUID
 
 from aideo_serv.config import Settings
-from aideo_serv.dependencies import get_inference_client, get_inference_manager, get_task_service
+from aideo_serv.dependencies import get_inference_client, get_task_service
 from aideo_serv.models.error import error_response
-from aideo_serv.models.events import InferenceMessage
 from aideo_serv.models.task import TaskCreate, TaskStatus
+from aideo_serv.services.inference_client import TaskCallbacks
 from aideo_serv.services.task_service import TaskService
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -52,43 +52,62 @@ async def _submit_to_inference(
     params: dict | None,
     task_type: str = "video_generation",
     input_files: list[dict] | None = None,
+    *,
+    preempt: bool = False,
 ) -> None:
-    """Transition task through RUNNING → GENERATING, then dispatch via WebSocket."""
+    """Transition task through RUNNING → GENERATING, dispatch via HTTP+SSE."""
     svc = get_task_service()
-    mgr = get_inference_manager()
+    client = get_inference_client()
     settings = Settings()
-
-    service_type = _resolve_service(task_type)
-
-    # Check if the inference service is connected
-    if not mgr.is_connected(service_type):
-        logger.warning(
-            "Inference service '%s' not connected, failing task %s", service_type, task_id
-        )
-        svc.fail(task_id, f"Inference service '{service_type}' is not connected")
-        return
 
     try:
         svc.update_status(task_id, TaskStatus.RUNNING.value)
         svc.update_status(task_id, TaskStatus.GENERATING.value)
 
-        msg = InferenceMessage(
-            type="task_submit",
-            task_id=str(task_id),
-            task_type=task_type,
-            data={
-                "prompt": prompt,
-                "params": params or {},
-                "model_root": settings.model_root,
-                "output_root": settings.output_root,
-                "input_root": settings.input_root,
-                "input_files": input_files or [],
-            },
+        payload = {
+            "prompt": prompt,
+            "params": params or {},
+            "model_root": settings.model_root,
+            "output_root": settings.output_root,
+            "input_root": settings.input_root,
+            "input_files": input_files or [],
+            "task_id": str(task_id),
+        }
+
+        callbacks = TaskCallbacks(
+            on_progress=lambda p, m: _on_progress(task_id, p, m),
+            on_completed=lambda d: _on_completed(task_id, d),
+            on_error=lambda m: _on_error(task_id, m),
         )
-        await mgr.send_to_service(service_type, msg)
+
+        await client.run(task_type, payload, callbacks, preempt=preempt)
     except Exception as exc:
         logger.exception("Failed to submit task %s to inference", task_id)
         svc.fail(task_id, str(exc))
+
+
+async def _on_progress(task_id: UUID, progress: float, message: str) -> None:
+    svc = get_task_service()
+    try:
+        svc.update_progress(task_id, progress, message)
+    except ValueError:
+        pass  # already terminal
+
+
+async def _on_completed(task_id: UUID, result_data: dict) -> None:
+    svc = get_task_service()
+    try:
+        svc.complete(task_id, "", result_data)
+    except ValueError:
+        pass
+
+
+async def _on_error(task_id: UUID, message: str) -> None:
+    svc = get_task_service()
+    try:
+        svc.fail(task_id, message)
+    except ValueError:
+        pass
 
 
 # ---- REST endpoints ----------------------------------------------------
@@ -162,21 +181,7 @@ async def cancel_task(
             )[0],
         )
 
-    # Forward to inference service via WebSocket if currently generating
-    if task.status == TaskStatus.GENERATING:
-        mgr = get_inference_manager()
-        service_type = _resolve_service(task.task_type)
-        try:
-            msg = InferenceMessage(
-                type="task_cancel",
-                task_id=str(task_id),
-            )
-            await mgr.send_to_service(service_type, msg)
-        except Exception:
-            logger.warning(
-                "Failed to forward cancel to inference for task %s", task_id
-            )
-
+    # Runtime called via HTTP+SSE — cancel by client disconnect / timeout
     try:
         return svc.cancel(task_id)
     except ValueError as e:

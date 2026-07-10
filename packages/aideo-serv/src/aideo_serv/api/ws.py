@@ -7,12 +7,13 @@ from uuid import UUID, uuid4
 from aideo_serv.config import Settings
 from aideo_serv.dependencies import (
     get_connection_manager,
-    get_inference_manager,
+    get_inference_client,
     get_project_service,
     get_task_service,
 )
-from aideo_serv.models.events import InferenceMessage, WSEvent
+from aideo_serv.models.events import WSEvent
 from aideo_serv.models.task import TaskStatus
+from aideo_serv.services.inference_client import TaskCallbacks
 from aideo_serv.services.task_service import _EVENT_DISCRIMINATOR
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -151,23 +152,6 @@ async def project_progress(websocket: WebSocket, project_id: UUID):
 
 
 # ---------------------------------------------------------------------------
-# Internal WebSocket — inference services connect here
-# ---------------------------------------------------------------------------
-
-
-@ws_router.websocket("/internal/inference")
-async def inference_service(websocket: WebSocket):
-    """Internal WebSocket for local inference services (ltx2, whisper, …).
-
-    Inference services connect at startup and register with their
-    ``service_type`` and ``capabilities``.  aideo-serv then routes
-    task_submit / task_cancel messages over this persistent channel.
-    """
-    mgr = get_inference_manager()
-    await mgr.handle_connection(websocket)
-
-
-# ---------------------------------------------------------------------------
 # Streaming speech-to-text — "one audio → one text" over a persistent WS
 # ---------------------------------------------------------------------------
 
@@ -194,14 +178,11 @@ async def transcribe_stream(websocket: WebSocket):
     await websocket.accept()
 
     svc = get_task_service()
-    mgr = get_inference_manager()
-    conn_mgr = get_connection_manager()
+    client = get_inference_client()
     settings = Settings()
-    service_type = "aideo-runtime"
 
     try:
         while True:
-            # ---- receive binary audio ---------------------------------
             try:
                 audio_bytes = await websocket.receive_bytes()
             except (WebSocketDisconnect, RuntimeError):
@@ -210,17 +191,14 @@ async def transcribe_stream(websocket: WebSocket):
             if not audio_bytes:
                 continue
 
-            # ---- save to temp file (absolute path for runtime) ---------
             temp_dir = Path(settings.output_root).resolve() / ".stream_tmp"
             temp_dir.mkdir(parents=True, exist_ok=True)
             temp_path = temp_dir / f"chunk_{uuid4().hex[:12]}.wav"
             temp_path.write_bytes(audio_bytes)
 
             task_id = None
-            queue = None
 
             try:
-                # ---- create task --------------------------------------
                 task = svc.create(
                     prompt=f"Stream transcription {temp_path.name}",
                     params={},
@@ -229,68 +207,36 @@ async def transcribe_stream(websocket: WebSocket):
                 )
                 task_id = task.id
 
-                # ---- subscribe BEFORE any events are broadcast ----------
-                queue = conn_mgr.subscribe(task_id)
+                await websocket.send_json({
+                    "type": "status_change",
+                    "data": {"status": "queued"},
+                })
 
-                # ---- submit to inference runtime -----------------------
                 svc.update_status(task_id, TaskStatus.RUNNING.value)
                 svc.update_status(task_id, TaskStatus.GENERATING.value)
 
-                inference_msg = InferenceMessage(
-                    type="task_submit",
-                    task_id=str(task_id),
-                    task_type="speech_to_text",
-                    data={
-                        "prompt": task.prompt,
-                        "params": task.params or {},
-                        "model_root": settings.model_root,
-                        "output_root": settings.output_root,
-                        "input_root": settings.input_root,
-                        "input_files": task.input_files or [],
-                    },
-                )
-                await mgr.send_to_service(service_type, inference_msg)
-
-                # ---- wait for result via event queue -------------------
-                while True:
-                    event = await queue.get()
-                    if event is None:
-                        break
-                    try:
-                        await websocket.send_json(event)
-                    except (WebSocketDisconnect, RuntimeError):
-                        break  # client disconnected, stop sending
-
-                    parsed = event if isinstance(event, dict) else {}
-                    etype = parsed.get("type", "")
-                    if etype in ("completed", "error"):
-                        try:
-                            final_task = svc.get(task_id)
-                            if etype == "completed" and final_task.result_data:
-                                await websocket.send_json({
-                                    "type": "result",
-                                    "task_id": str(task_id),
-                                    "data": final_task.result_data,
-                                })
-                            elif etype == "error":
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "task_id": str(task_id),
-                                    "data": {
-                                        "message": final_task.error_message or "Unknown error",
-                                    },
-                                })
-                        except (WebSocketDisconnect, RuntimeError):
-                            pass
-                        break
-
-            except LookupError:
-                await _safe_send(websocket, {
-                    "type": "error",
-                    "data": {
-                        "message": f"Inference service '{service_type}' is not connected",
-                    },
+                await websocket.send_json({
+                    "type": "progress",
+                    "data": {"progress": 0.0, "message": "Transcribing..."},
                 })
+
+                # Call runtime via HTTP+SSE
+                callbacks = TaskCallbacks(
+                    on_progress=lambda p, m: _safe_send(websocket, {
+                        "type": "progress", "data": {"progress": p, "message": m},
+                    }),
+                    on_completed=lambda d: _handle_stt_completed(task_id, d, websocket, svc),
+                    on_error=lambda m: _safe_send(websocket, {
+                        "type": "error", "task_id": str(task_id), "data": {"message": m},
+                    }),
+                )
+
+                await client.run("speech_to_text", {
+                    "audio_path": str(temp_path),
+                    "params": task.params or {},
+                    "task_id": str(task_id),
+                }, callbacks)
+
             except Exception:
                 logger.exception("Stream transcription failed for task %s", task_id)
                 await _safe_send(websocket, {
@@ -298,9 +244,6 @@ async def transcribe_stream(websocket: WebSocket):
                     "data": {"message": "Internal server error during transcription"},
                 })
             finally:
-                if queue is not None and task_id is not None:
-                    conn_mgr.unsubscribe(task_id, queue)
-                # Clean up temp file
                 try:
                     temp_path.unlink(missing_ok=True)
                 except Exception:
@@ -320,6 +263,21 @@ async def _safe_send(websocket: WebSocket, data: dict) -> None:
     try:
         await websocket.send_json(data)
     except (WebSocketDisconnect, RuntimeError):
+        pass
+
+
+async def _handle_stt_completed(
+    task_id: UUID, result_data: dict, websocket: WebSocket, svc,
+) -> None:
+    """Handle speech-to-text completion: complete task + send result to WS."""
+    try:
+        svc.complete(task_id, "", result_data)
+        await websocket.send_json({
+            "type": "result",
+            "task_id": str(task_id),
+            "data": result_data,
+        })
+    except (WebSocketDisconnect, RuntimeError, ValueError):
         pass
 
 

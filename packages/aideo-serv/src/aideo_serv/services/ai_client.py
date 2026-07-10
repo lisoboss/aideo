@@ -176,12 +176,8 @@ class RuntimeProvider(AIProvider):
         super().__init__(name="runtime", model="aideo-runtime")
 
     async def chat(self, messages, model=None, temperature=0.7, max_tokens=4096, **kwargs) -> str:
-        from aideo_serv.dependencies import get_inference_manager
-
-        mgr = get_inference_manager()
         user_msg = next((m["content"] for m in messages if m["role"] == "user"), "")
-        if not mgr.is_connected("aideo-runtime"):
-            return f"[Runtime: not connected] {user_msg[:200]}"
+        # Runtime called via HTTP+SSE on-demand — chat stub for now
         return f"[Runtime: chat pending] {user_msg[:200]}"
 
     async def chat_json(self, messages, model=None, temperature=0.3, max_tokens=4096, **kwargs) -> dict:

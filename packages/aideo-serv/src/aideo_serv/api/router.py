@@ -10,7 +10,7 @@ from aideo_serv.api.projects import projects_router
 from aideo_serv.api.results import results_router
 from aideo_serv.api.tasks import CallbackPayload, tasks_router
 from aideo_serv.api.ws import ws_router
-from aideo_serv.dependencies import get_inference_manager, get_task_service
+from aideo_serv.dependencies import get_task_service
 from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
@@ -20,13 +20,11 @@ router = APIRouter(prefix="/api/v1")
 @router.get("/health")
 async def health():
     """Health check endpoint — v2 with version and services status."""
-    mgr = get_inference_manager()
-    inference_status = "connected" if mgr.is_any_connected() else "disconnected"
     return {
         "status": "ok",
         "version": "2.0.0",
         "services": {
-            "inference": inference_status,
+            "inference": "ok",  # HTTP+SSE — runtime called on-demand
             "storage": "ok",
         },
     }

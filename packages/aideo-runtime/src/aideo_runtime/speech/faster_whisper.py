@@ -28,6 +28,7 @@ class FasterWhisperProvider(SpeechProvider):
         compute_type: str | None = None,
         model_root: str | None = None,
     ) -> None:
+        super().__init__()
         self._model: WhisperModel | None = None
         self._loaded = False
         self._model_size_or_path = model_size_or_path or os.environ.get("WHISPER_MODEL", "large-v3")
@@ -155,6 +156,13 @@ class FasterWhisperProvider(SpeechProvider):
         t0 = time.monotonic()
 
         while not task.done():
+            if self.is_cancelled:
+                task.cancel()
+                yield ProgressStatus(
+                    progress=100.0, message="Cancelled (client disconnected)",
+                    result_data={"error": "cancelled"},
+                )
+                return
             elapsed = time.monotonic() - t0
             yield ProgressStatus(
                 progress=round(min(95.0, 10.0 + elapsed * 5), 1),

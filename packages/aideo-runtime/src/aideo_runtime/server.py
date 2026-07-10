@@ -38,6 +38,7 @@ class ProviderManager:
     def __init__(self) -> None:
         self._instances: dict[str, BaseProvider] = {}
         self._last_used: dict[str, float] = {}
+        self._running: set[str] = set()  # keys currently executing run()
 
     # ------------------------------------------------------------------
     # Discovery
@@ -94,6 +95,40 @@ class ProviderManager:
                         logger.info("Unloading idle provider: %s (%.0fs idle)", key, now - last_used)
                         await provider.unload()
 
+    # ------------------------------------------------------------------
+    # Memory preemption
+    # ------------------------------------------------------------------
+
+    async def preempt_all(self, for_key: str) -> None:
+        """Release all loaded models for exclusive use by `for_key`.
+
+        Raises RuntimeError if any provider is currently running.
+        """
+        running = self._running - {for_key}
+        if running:
+            raise RuntimeError(
+                f"Memory preemption failed: {len(running)} provider(s) still running: {running}"
+            )
+
+        for key in list(self._instances.keys()):
+            if key == for_key:
+                continue
+            provider = self._instances.pop(key, None)
+            self._last_used.pop(key, None)
+            if provider is not None:
+                logger.info("Preempt: unloading %s", key)
+                await provider.unload()
+
+    def mark_running(self, key: str) -> None:
+        self._running.add(key)
+
+    def mark_idle(self, key: str) -> None:
+        self._running.discard(key)
+
+    # ------------------------------------------------------------------
+    # Introspection
+    # ------------------------------------------------------------------
+
     def list_categories(self) -> dict[str, list[str]]:
         result: dict[str, list[str]] = {}
         for cat in CATEGORIES:
@@ -137,20 +172,50 @@ async def startup() -> None:
 
 @app.post("/api/v1/{category}/{provider_name}")
 async def run_provider(category: str, provider_name: str, request: Request) -> EventSourceResponse:
-    """Run inference on a provider, streaming progress via SSE."""
+    """Run inference on a provider, streaming progress via SSE.
+
+    Header ``X-Memory-Preempt: true`` unloads ALL other models first,
+    giving this request exclusive GPU memory. Fails if any provider is
+    currently running.
+    """
     body = await request.json()
+    preempt = request.headers.get("X-Memory-Preempt", "").lower() in ("1", "true", "yes")
 
     # Separate init kwargs from run kwargs
     init_keys = {"model_size_or_path", "device", "compute_type", "model_root"}
     init_kwargs = {k: body.pop(k) for k in init_keys if k in body and body.get(k) is not None}
-    run_kwargs = body  # remaining fields go to run()
+    run_kwargs = body
+
+    provider_key = f"{category}/{provider_name}"
+
+    # Memory preemption: release all other models
+    if preempt:
+        try:
+            await _manager.preempt_all(for_key=provider_key)
+        except RuntimeError as exc:
+            async def error_stream():
+                yield {
+                    "event": "error",
+                    "data": ProgressStatus(
+                        progress=100.0, message=str(exc),
+                        result_data={"error": "preempt_failed", "detail": str(exc)},
+                    ).model_dump_json(),
+                }
+            return EventSourceResponse(error_stream())
 
     provider = await _manager.get_provider(category, provider_name, **init_kwargs)
 
+    provider.reset_cancel()
+
     async def event_stream():
+        _manager.mark_running(provider_key)
         try:
             async for status in provider.run(**run_kwargs):
                 yield {"event": "progress", "data": status.model_dump_json()}
+        except asyncio.CancelledError:
+            # Client disconnected — stop inference
+            logger.info("Client disconnected, cancelling %s", provider_key)
+            provider.cancel()
         except Exception as exc:
             logger.exception("Provider %s/%s failed", category, provider_name)
             yield {
@@ -159,6 +224,8 @@ async def run_provider(category: str, provider_name: str, request: Request) -> E
                     progress=100.0, message=str(exc), result_data={"error": str(exc)}
                 ).model_dump_json(),
             }
+        finally:
+            _manager.mark_idle(provider_key)
 
     return EventSourceResponse(event_stream())
 
