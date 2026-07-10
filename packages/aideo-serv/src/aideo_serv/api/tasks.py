@@ -6,6 +6,7 @@ from uuid import UUID
 
 from aideo_serv.config import Settings
 from aideo_serv.dependencies import get_inference_client, get_inference_manager, get_task_service
+from aideo_serv.models.error import error_response
 from aideo_serv.models.events import InferenceMessage
 from aideo_serv.models.task import TaskCreate, TaskStatus
 from aideo_serv.services.task_service import TaskService
@@ -17,6 +18,7 @@ tasks_router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 # ---- callback model (kept for backward compat / cloud inference) -----------
 
+
 class CallbackPayload(BaseModel):
     """Payload received from the inference service via HTTP callback."""
 
@@ -26,6 +28,7 @@ class CallbackPayload(BaseModel):
 
 
 # ---- service-type resolution ----------------------------------------------
+
 
 _SERVICE_FOR_TASK_TYPE: dict[str, str] = {
     "video_generation": "aideo-runtime",
@@ -41,6 +44,7 @@ def _resolve_service(task_type: str | None) -> str:
 
 
 # ---- orchestration helper --------------------------------------------------
+
 
 async def _submit_to_inference(
     task_id: UUID,
@@ -89,6 +93,7 @@ async def _submit_to_inference(
 
 # ---- REST endpoints ----------------------------------------------------
 
+
 @tasks_router.post("", status_code=201)
 async def create_task(
     payload: TaskCreate,
@@ -99,6 +104,9 @@ async def create_task(
         prompt=payload.prompt,
         params=payload.params,
         task_type=payload.task_type,
+        project_id=payload.project_id,
+        output_node_id=payload.output_node_id,
+        prompt_structured=payload.prompt_structured,
         input_files=payload.input_files,
     )
     asyncio.create_task(
@@ -112,12 +120,13 @@ async def create_task(
 @tasks_router.get("")
 async def list_tasks(
     status: str | None = Query(None),
+    project_id: UUID | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     svc: TaskService = Depends(get_task_service),
 ):
-    """List tasks with optional status filter and pagination."""
-    return svc.list(status=status, offset=offset, limit=limit)
+    """List tasks with optional status/project_id filter and pagination."""
+    return svc.list(status=status, project_id=project_id, offset=offset, limit=limit)
 
 
 @tasks_router.get("/{task_id}")
@@ -129,7 +138,12 @@ async def get_task(
     try:
         return svc.get(task_id)
     except LookupError:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(
+            status_code=404,
+            detail=error_response(
+                "RESOURCE_NOT_FOUND", f"Task {task_id} not found"
+            )[0],
+        )
 
 
 @tasks_router.delete("/{task_id}")
@@ -141,7 +155,12 @@ async def cancel_task(
     try:
         task = svc.get(task_id)
     except LookupError:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(
+            status_code=404,
+            detail=error_response(
+                "RESOURCE_NOT_FOUND", f"Task {task_id} not found"
+            )[0],
+        )
 
     # Forward to inference service via WebSocket if currently generating
     if task.status == TaskStatus.GENERATING:
@@ -161,4 +180,7 @@ async def cancel_task(
     try:
         return svc.cancel(task_id)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(
+            status_code=409,
+            detail=error_response("CONFLICT", str(e))[0],
+        )

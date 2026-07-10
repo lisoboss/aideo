@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import UUID
 
 from aideo_serv.dependencies import get_task_service
+from aideo_serv.models.error import error_response
 from aideo_serv.models.task import TaskStatus
 from aideo_serv.services.task_service import TaskService
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,10 +22,18 @@ async def download_result(
     try:
         task = svc.get(task_id)
     except LookupError:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(
+            status_code=404,
+            detail=error_response(
+                "RESOURCE_NOT_FOUND", f"Task {task_id} not found"
+            )[0],
+        )
 
     if task.status != TaskStatus.COMPLETED:
-        raise HTTPException(status_code=404, detail="Result not available")
+        raise HTTPException(
+            status_code=404,
+            detail=error_response("RESOURCE_NOT_FOUND", "Result not available")[0],
+        )
 
     # Inline result data (e.g. speech-to-text transcription) — return as JSON
     if task.result_data:
@@ -32,11 +41,17 @@ async def download_result(
 
     # File-based result (e.g. generated video)
     if not task.result_path:
-        raise HTTPException(status_code=404, detail="Result not available")
+        raise HTTPException(
+            status_code=404,
+            detail=error_response("RESOURCE_NOT_FOUND", "Result not available")[0],
+        )
 
     path = Path(task.result_path)
     if not path.exists():
-        raise HTTPException(status_code=404, detail="Video file not found")
+        raise HTTPException(
+            status_code=404,
+            detail=error_response("RESOURCE_NOT_FOUND", "Video file not found")[0],
+        )
 
     return FileResponse(path=path, media_type="video/mp4", filename=f"{task_id}.mp4")
 
@@ -51,11 +66,19 @@ async def get_preview(
     try:
         task = svc.get(task_id)
     except LookupError:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(
+            status_code=404,
+            detail=error_response(
+                "RESOURCE_NOT_FOUND", f"Task {task_id} not found"
+            )[0],
+        )
 
     for preview_url in task.previews:
         preview_path = Path(preview_url)
         if preview_path.exists() and preview_path.name.startswith(frame):
             return FileResponse(path=preview_path, media_type="image/jpeg")
 
-    raise HTTPException(status_code=404, detail="Preview not found")
+    raise HTTPException(
+        status_code=404,
+        detail=error_response("RESOURCE_NOT_FOUND", "Preview not found")[0],
+    )

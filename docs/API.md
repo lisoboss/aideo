@@ -243,6 +243,7 @@ POST /generate
 | `upstream_context` | UpstreamResult[] | 否 | 上游输出节点的文本/图片/视频 |
 | `ai_enhance_context` | string[] | 否 | AIEnhanceNode 的输出文本 |
 | `output_params` | GenerationParams | 否 | 此次生成参数 |
+| `ai_provider` | string | 否 | 覆盖默认 AI 供应商（如 `"openai"`、`"aideo"`） |
 
 **ReferenceAsset**：`{ "asset_id": "uuid", "usage": "style_reference" }` — usage 可选值：`style_reference` \| `character_reference` \| `background` \| `motion_reference`
 
@@ -279,7 +280,8 @@ POST /generate
 3. `asset_id` → 文件路径（不再 base64 解码）
 4. task 上写 `prompt_structured`（调试/重新生成用）
 5. 设置 `project_id` 和 `output_node_id`
-6. 创建任务 → 提交推理 → 返回 task_id 供 WS 订阅
+6. 若 `ai_provider` ≠ stub，通过 AI 增强优化 prompt
+7. 创建任务 → 提交推理 → 返回 task_id 供 WS 订阅
 
 ---
 
@@ -294,38 +296,43 @@ DELETE /tasks/{id}                      取消 → 200。终态任务返回 409
 
 ---
 
-### Canvas Assist（NEW — 重新设计）
+### Canvas Assist（NEW — AI 驱动）
 
-三个端点都返回 `PromptBlock` 结构，iPad 建好卡片直接落画布。
+三个端点由配置的 AI 供应商（DeepSeek / OpenAI / aideo-runtime）生成 `PromptBlock`。失败时自动 fallback 到 stub。前端可通过 `ai_provider` 字段覆盖默认供应商。
+
+所有端点返回完整 `PromptBlock`（含 UUID），iPad 可直接落画布。
 
 #### `POST /canvas/structure` — 自由文本 → 类型化 PromptBlock
 
 ```json
 // Request
-{ "description": "A samurai in a cyberpunk city at night, walking through rain" }
+{
+  "description": "A samurai in a cyberpunk city at night, walking through rain",
+  "ai_provider": "deepseek"
+}
 
 // Response
 {
   "blocks": [
-    {"type": "scene", "content": "Cyberpunk city at night, neon-lit streets, rain falling"},
-    {"type": "character", "content": "Skilled samurai with cybernetic arm, glowing blue tattoos, dark cloak"},
-    {"type": "action", "content": "Walking slowly through rain, hand on katana"},
-    {"type": "style", "content": "Cyberpunk noir, cinematic lighting, volumetric rain"},
-    {"type": "camera", "content": "Low angle wide shot, depth of field"},
-    {"type": "mood", "content": "Melancholic, tense, atmospheric"}
+    {"id": "uuid", "type": "scene", "content": "Cyberpunk city at night, neon-lit streets, rain falling"},
+    {"id": "uuid", "type": "character", "content": "Samurai in traditional armor with cybernetic enhancements, katana at side"},
+    {"id": "uuid", "type": "action", "content": "Walking slowly through rain, water splashing, cloak billowing"},
+    {"id": "uuid", "type": "camera", "content": "Medium tracking shot from behind, slightly low angle"},
+    {"id": "uuid", "type": "mood", "content": "Melancholic, determined, atmospheric"},
+    {"id": "uuid", "type": "style", "content": "Cyberpunk aesthetic, neon-noir, high contrast"}
   ]
 }
 ```
 
-#### `POST /canvas/complete` — 上下文 + 模式 → 补全建议
-
-mode = `"completion"`（补缺类型）或 `"suggestion"`（提供替代）
+#### `POST /canvas/complete` — 上下文 + 已有 blocks → 补全建议
 
 ```json
 // Request
 {
   "context": "A warrior princess in an ancient temple",
-  "existing_blocks": [{"id": "x", "type": "scene", "content": "Ancient temple ruins at sunset"}],
+  "existing_blocks": [
+    {"id": "11111111-1111-1111-1111-111111111111", "type": "scene", "content": "Ancient temple ruins at sunset, overgrown with vines"}
+  ],
   "mode": "completion"
 }
 
@@ -333,10 +340,17 @@ mode = `"completion"`（补缺类型）或 `"suggestion"`（提供替代）
 {
   "suggestions": [
     {
-      "title": "Add character details",
+      "title": "Character and Action",
       "blocks": [
-        {"type": "character", "content": "Warrior princess, long braided hair, leather armor"},
-        {"type": "action", "content": "Standing at temple entrance, surveying ruins"}
+        {"id": "uuid", "type": "character", "content": "Warrior princess with braided hair, bronze armor, flowing red cape, glowing sword"},
+        {"id": "uuid", "type": "action", "content": "Walking slowly through ruins, scanning surroundings, hand resting on sword"}
+      ]
+    },
+    {
+      "title": "Camera and Mood",
+      "blocks": [
+        {"id": "uuid", "type": "camera", "content": "Low-angle tracking shot, dramatic lighting from setting sun"},
+        {"id": "uuid", "type": "mood", "content": "Mysterious and majestic with a sense of ancient power"}
       ]
     }
   ]
@@ -353,19 +367,74 @@ mode = `"completion"`（补缺类型）或 `"suggestion"`（提供替代）
 {
   "themes": [
     {
-      "title": "Atlantean Palace",
-      "prompt": "A grand underwater palace built from coral and crystal...",
-      "style_hint": "Submerged lighting, bioluminescent accents, deep blue palette",
-      "tags": ["underwater", "fantasy", "palace"],
+      "title": "Neon Abyss City",
+      "prompt": "A bustling underwater city with towering bioluminescent skyscrapers...",
+      "style_hint": "Cyberpunk, vibrant neon colors, bioluminescence, deep ocean blues",
+      "tags": ["cyberpunk", "neon", "bioluminescent", "underwater"],
       "blocks": [
-        {"type": "scene", "content": "Grand underwater hall with coral pillars"},
-        {"type": "character", "content": "Atlantean queen, pearl crown, iridescent robes"},
-        {"type": "style", "content": "Fantasy realism, ethereal glow", "params": {"style": "cinematic"}}
+        {"id": "uuid", "type": "scene", "content": "Wide-angle shot of city skyline, glowing towers rising from ocean floor"},
+        {"id": "uuid", "type": "style", "content": "Vibrant neon against dark ocean, volumetric lighting through water"},
+        {"id": "uuid", "type": "camera", "content": "Slow pan rising from ocean floor to show the city's full height"}
+      ]
+    },
+    {
+      "title": "Ancient Temple of the Deep",
+      "prompt": "Ruined stone temple with carvings of sea creatures, overgrown with bioluminescent kelp...",
+      "style_hint": "Mythic, ancient, mysterious, soft blue-green lighting",
+      "tags": ["ancient", "ruins", "mythical", "mysterious"],
+      "blocks": [
+        {"id": "uuid", "type": "scene", "content": "Close-up of giant statue face, pull back to reveal temple interior"},
+        {"id": "uuid", "type": "style", "content": "Mystical atmosphere, soft diffused light, glowing organic elements"},
+        {"id": "uuid", "type": "camera", "content": "Slow dolly through entrance, tilt up to show statue"}
       ]
     }
   ]
 }
 ```
+
+---
+
+### AI 供应商发现（NEW）
+
+```
+GET /ai/providers
+```
+
+列出所有已配置的 AI 供应商供前端选择。服务端通过 `AIDEO_AI_PROVIDERS` 环境变量配置。
+
+**Response**：
+```json
+{
+  "providers": [
+    {"name": "openai", "model": "gpt-4o", "is_default": true},
+    {"name": "aideo", "model": "aideo-runtime", "is_default": false}
+  ],
+  "default": "openai"
+}
+```
+
+**配置方式**（环境变量）：
+
+```bash
+# 多供应商 JSON（推荐）
+AIDEO_AI_PROVIDERS='[{"name":"openai","type":"openai","base_url":"https://api.openai.com/v1","api_key":"sk-...","model":"gpt-4o"},{"name":"aideo","type":"runtime"}]'
+
+# 或单供应商（兼容）
+AIDEO_AI_PROVIDER=openai
+AIDEO_AI_BASE_URL=https://api.openai.com/v1
+AIDEO_AI_API_KEY=sk-...
+AIDEO_AI_MODEL=gpt-4o
+```
+
+| 供应商 type | 说明 |
+|---|---|
+| `openai` | OpenAI 兼容接口（OpenAI / vLLM / Ollama / Groq / DeepSeek …） |
+| `runtime` | aideo-runtime 的 chat / text_conversation 能力 |
+| `stub` | 无 API key 时的 mock 回退（默认） |
+
+**前端使用**：在 `POST /generate`、`POST /canvas/structure` 等请求中加 `"ai_provider": "openai"` 选择供应商，不传则用服务端默认值。
+
+> `"aideo"` 供应商即使用 aideo-runtime。前端可硬编码此 name，后端通过配置决定走哪个实例。
 
 ---
 
@@ -427,7 +496,7 @@ WS   /ws/internal/inference        推理服务注册 + 消息路由
 ## API 总结
 
 ```
-新增（16个端点 + 1个WS）                   保留（不变）
+新增（17个端点 + 2个WS）                   保留（不变）
 ─────────────────────────               ─────────────────
 POST   /projects                       GET    /health
 GET    /projects                       POST   /tasks
@@ -444,6 +513,7 @@ POST   /generate
 POST   /canvas/structure
 POST   /canvas/complete
 POST   /canvas/inspire
+GET    /ai/providers
 WS     /ws/projects/{id}
 ```
 
@@ -456,6 +526,9 @@ WS     /ws/projects/{id}
 | 泛型 `{type, data}` 事件 | 类型化 `task.progress` 等 | 编译期安全，消灭 AnyCodable |
 | 客户端 PromptSerializer | 后端结构化序列化 | 后端持有 prompt 格式 |
 | 客户端 BFS + base64 编码 | 客户端发子图结构，后端解析资产 | 职责分离 |
+| 硬编码 stub 响应 | 统一 AI 供应商接口（openai/aideo/stub） | 前端可选，在线/本地方便切换 |
+| 无 AI 发现 | `GET /ai/providers` | 前端动态获取可用供应商列表 |
+| 原始 prompt 直发推理 | AI 增强 prompt 后提交 | 生成质量提升 |
 
 ## 状态机
 
@@ -475,5 +548,6 @@ queued ──→ running ──→ generating ──→ completed
 2. base64 → `POST /assets` + asset_id 引用
 3. `ws/tasks/{id}` → `ws/projects/{id}`
 4. 本地 SwiftData → Project CRUD 云端同步
-5. 硬编码 fallback → `/canvas/*` 端点
-6. 移除 `PromptSerializer.swift` + `AnyCodable`
+5. 硬编码 fallback → `/canvas/*` AI 驱动端点
+6. `GET /ai/providers` → 前端供应商选择器（deepseek / openai / aideo）
+7. 移除 `PromptSerializer.swift` + `AnyCodable`

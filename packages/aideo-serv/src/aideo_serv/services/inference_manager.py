@@ -114,6 +114,10 @@ class InferenceServiceManager:
         """Return True if an inference service of the given type is connected."""
         return service_type in self._connections
 
+    def is_any_connected(self) -> bool:
+        """Return True if at least one inference service is connected."""
+        return len(self._connections) > 0
+
     def get_capabilities(self, service_type: str) -> list[TaskType]:
         """Return the capabilities advertised by a connected service."""
         return self._capabilities.get(service_type, [])

@@ -1,5 +1,15 @@
 """FastAPI dependency injection for aideo-serv."""
 
+from aideo_serv.services.ai_client import (  # noqa: F401
+    AIClient,
+    get_ai_client,
+    set_ai_client,
+)
+from aideo_serv.services.asset_service import (  # noqa: F401
+    AssetService,
+    get_asset_service,
+    set_asset_service,
+)
 from aideo_serv.services.connection_manager import (  # noqa: F401
     get_connection_manager,
     set_connection_manager,
@@ -8,6 +18,11 @@ from aideo_serv.services.inference import InferenceClient
 from aideo_serv.services.inference_manager import (  # noqa: F401
     get_inference_manager,
     set_inference_manager,
+)
+from aideo_serv.services.project_service import (  # noqa: F401
+    ProjectService,
+    get_project_service,
+    set_project_service,
 )
 from aideo_serv.services.task_service import TaskService
 

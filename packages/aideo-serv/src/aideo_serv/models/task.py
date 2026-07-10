@@ -25,6 +25,9 @@ class TaskCreate(BaseModel):
     params: dict | None = None
     task_type: str = "video_generation"  # video_generation | speech_to_text
     input_files: list[dict] | None = None  # e.g. [{"path": "...", "type": "audio"}]
+    project_id: UUID | None = None
+    output_node_id: UUID | None = None
+    prompt_structured: dict | None = None
 
 
 class Task(BaseModel):
@@ -49,6 +52,8 @@ class Task(BaseModel):
     previews: list[str] = Field(default_factory=list)
     error_message: str | None = None
     project_id: UUID | None = None
+    output_node_id: UUID | None = None
+    prompt_structured: dict | None = None
 
 
 class TaskListResponse(BaseModel):
