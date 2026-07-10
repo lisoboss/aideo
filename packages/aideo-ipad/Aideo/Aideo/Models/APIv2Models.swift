@@ -166,6 +166,37 @@ struct HealthInfo: Codable, Sendable {
     let services: [String: String]?
 }
 
+// MARK: - Image Edit
+
+struct MaskRegion: Codable, Sendable {
+    let x: Double       // 相对坐标 0.0-1.0
+    let y: Double
+    let width: Double
+    let height: Double
+    let label: String?  // 区域标签（如 "character_A"）
+}
+
+struct EditImageRequest: Codable, Sendable {
+    let project_id: String?
+    let mode: String                // composite | replace_character | inpainting | style_transfer
+    let base_image: String          // asset_id
+    var reference_images: [String] = []  // asset_id[]
+    var mask_regions: [MaskRegion] = []
+    var prompt_blocks: [PromptBlockDTO] = []
+    var language: String?
+    var ai_provider: String?
+}
+
+struct EditImageResponse: Codable, Sendable {
+    let task_id: String
+    let task: TaskModel
+}
+
+struct UpscaleRequest: Codable, Sendable {
+    let asset_id: String
+    let scale: Int  // 2, 4
+}
+
 // MARK: - Transcript Correction
 
 struct CorrectRequest: Codable, Sendable {

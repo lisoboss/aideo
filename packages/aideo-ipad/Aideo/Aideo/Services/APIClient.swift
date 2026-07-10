@@ -116,6 +116,19 @@ actor APIClient {
         let _: EmptyResponse = try await delete("/api/v1/assets/\(id)")
     }
 
+    // MARK: - Image Edit (v2)
+
+    /// 图片编辑：合图/角色替换/局部重绘/风格迁移
+    func editImage(request: EditImageRequest) async throws -> EditImageResponse {
+        let body = try encoder.asDictionary(request)
+        return try await post("/api/v1/canvas/edit-image", body: body)
+    }
+
+    /// 图片超分
+    func upscaleImage(assetId: String, scale: Int) async throws -> GenerateResponse {
+        try await post("/api/v1/canvas/upscale", body: ["asset_id": assetId, "scale": scale])
+    }
+
     // MARK: - Transcript Correction (v2)
 
     /// 智能纠错 + 繁简转换

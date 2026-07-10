@@ -94,6 +94,8 @@ Authorization: Bearer <token>
 | `fps` | int | 24, 30 |
 | `cfg_scale` | float | ~7.5 |
 | `steps` | int | ~50 |
+| `aspect_ratio` | string | 图片：`16:9` \| `4:3` \| `1:1` \| `3:2` \| `9:16` |
+| `image_quality` | string | 图片：`standard` \| `high` \| `ultra` |
 
 ### BlockConnection
 
@@ -392,52 +394,67 @@ POST /generate
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `text` | string | 是 | 需要纠错的原始文本 |
-| `language` | string | 否 | `zh`=繁→简，nil=自动 |
+| `language` | string | 否 | `zh`/`zh-CN`=繁→简，`ja`/`ko`/`en` 指定语言，nil/auto=AI 自动检测 |
 | `ai_provider` | string | 否 | 覆盖默认 AI 供应商 |
 
 ---
 
-### AI 供应商发现（NEW）
+### 图片编辑（NEW）
 
-```
-GET /ai/providers
-```
+#### `POST /canvas/edit-image` — AI 图片编辑
 
-列出所有已配置的 AI 供应商供前端选择。服务端通过 `AIDEO_AI_PROVIDERS` 环境变量配置。
+支持合图、角色替换、局部重绘、风格迁移。
 
-**Response**：
 ```json
+// Request — replace_character 模式
 {
-  "providers": [
-    {"name": "openai", "model": "gpt-4o", "is_default": true},
-    {"name": "aideo", "model": "aideo-runtime", "is_default": false}
+  "project_id": "uuid",
+  "mode": "replace_character",
+  "base_image": "asset-uuid",
+  "reference_images": ["asset-uuid"],
+  "mask_regions": [{"x": 0.2, "y": 0.15, "width": 0.3, "height": 0.6, "label": "character_A"}],
+  "prompt_blocks": [
+    {"id": "uuid", "type": "character", "content": "A white robot with red eyes"}
   ],
-  "default": "openai"
+  "language": "zh"
 }
+
+// Response 201
+{ "task_id": "uuid", "task": {...} }
 ```
 
-**配置方式**（环境变量）：
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `project_id` | UUID | 否 | 所属项目 |
+| `mode` | enum | 是 | `composite` \| `replace_character` \| `inpainting` \| `style_transfer` |
+| `base_image` | string | 是 | 底图 asset_id |
+| `reference_images` | string[] | 否 | 参考素材 asset_id[] |
+| `mask_regions` | MaskRegion[] | 否 | 选区（相对坐标） |
+| `prompt_blocks` | PromptBlock[] | 否 | 结构化描述 |
+| `language` | string | 否 | 语言偏好 |
+| `ai_provider` | string | 否 | 覆盖默认 AI 供应商 |
 
-```bash
-# 多供应商 JSON（推荐）
-AIDEO_AI_PROVIDERS='[{"name":"openai","type":"openai","base_url":"https://api.openai.com/v1","api_key":"sk-...","model":"gpt-4o"},{"name":"aideo","type":"runtime"}]'
+编辑模式：
+- `composite` — 合图：把 reference_images 合成到 base_image 指定区域
+- `replace_character` — 角色替换：根据 prompt 替换 mask_regions 内角色
+- `inpainting` — 局部重绘：重绘 mask_regions 区域
+- `style_transfer` — 风格迁移：把 reference 的风格应用到 base_image
 
-# 或单供应商（兼容）
-AIDEO_AI_PROVIDER=openai
-AIDEO_AI_BASE_URL=https://api.openai.com/v1
-AIDEO_AI_API_KEY=sk-...
-AIDEO_AI_MODEL=gpt-4o
+**MaskRegion**：`{ "x": 0.2, "y": 0.3, "width": 0.4, "height": 0.5, "label": "区域名" }` — 全部相对坐标（0.0-1.0）
+
+#### `POST /canvas/upscale` — 图片超分
+
+```json
+// Request
+{ "asset_id": "uuid", "scale": 2 }
+// Response
+{ "task_id": "uuid", "task": {...} }
 ```
 
-| 供应商 type | 说明 |
-|---|---|
-| `openai` | OpenAI 兼容接口（OpenAI / vLLM / Ollama / Groq / DeepSeek …） |
-| `runtime` | aideo-runtime 的 chat / text_conversation 能力 |
-| `stub` | 无 API key 时的 mock 回退（默认） |
-
-**前端使用**：在 `POST /generate`、`POST /canvas/structure` 等请求中加 `"ai_provider": "openai"` 选择供应商，不传则用服务端默认值。
-
-> `"aideo"` 供应商即使用 aideo-runtime。前端可硬编码此 name，后端通过配置决定走哪个实例。
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `asset_id` | string | 是 | 源图片 asset_id |
+| `scale` | int | 是 | 放大倍数（2 或 4） |
 
 ---
 
@@ -479,7 +496,7 @@ AIDEO_AI_MODEL=gpt-4o
 | `runtime` | aideo-runtime 的 chat / text_conversation 能力 |
 | `stub` | 无 API key 时的 mock 回退（默认） |
 
-**前端使用**：在 `POST /generate`、`POST /canvas/structure` 等请求中加 `"ai_provider": "openai"` 选择供应商，不传则用服务端默认值。
+**前端使用**：在所有 AI 端点（`/generate`、`/canvas/*`）请求中加 `"ai_provider": "openai"` 选择供应商，不传则用服务端默认值。`"language"` 字段支持 `zh`/`ja`/`ko`/`en`/`auto`，也可传 locale 格式（`zh-CN`、`ja-JP`），服务端取前 2 位。
 
 > `"aideo"` 供应商即使用 aideo-runtime。前端可硬编码此 name，后端通过配置决定走哪个实例。
 
@@ -539,7 +556,7 @@ WS   /ws/internal/inference        推理服务注册 + 消息路由
 ## API 总结
 
 ```
-新增（16个端点 + 1个WS）                   保留（不变）
+新增（18个端点 + 2个WS）                   保留（不变）
 ─────────────────────────               ─────────────────
 POST   /projects                       GET    /health
 GET    /projects                       POST   /tasks
@@ -556,6 +573,7 @@ POST   /generate
 POST   /canvas/structure
 POST   /canvas/complete
 POST   /canvas/inspire
+POST   /canvas/correct
 GET    /ai/providers
 WS     /ws/projects/{id}
 ```

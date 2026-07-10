@@ -10,16 +10,23 @@ struct GenerationParams: Codable, Equatable {
     var cfgScale: Double?       // 7.5
     var steps: Int?             // 50
 
+    // 图片生成
+    var aspectRatio: String?    // "16:9", "4:3", "1:1", "3:2", "9:16"
+    var imageQuality: String?   // "standard", "high", "ultra"
+
     enum CodingKeys: String, CodingKey {
         case duration, resolution, style, seed, fps
         case cfgScale = "cfg_scale"
         case steps
+        case aspectRatio = "aspect_ratio"
+        case imageQuality = "image_quality"
     }
 
     /// 参数是否全部为 nil（即用户未设置任何参数）
     var isEmpty: Bool {
         duration == nil && resolution == nil && style == nil
             && seed == nil && fps == nil && cfgScale == nil && steps == nil
+            && aspectRatio == nil && imageQuality == nil
     }
 
     /// 预定义分辨率选项
