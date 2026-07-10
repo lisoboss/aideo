@@ -423,6 +423,50 @@ AIDEO_AI_MODEL=gpt-4o
 
 ---
 
+### AI 供应商发现（NEW）
+
+```
+GET /ai/providers
+```
+
+列出所有已配置的 AI 供应商供前端选择。服务端通过 `AIDEO_AI_PROVIDERS` 环境变量配置。
+
+**Response**：
+```json
+{
+  "providers": [
+    {"name": "openai", "model": "gpt-4o", "is_default": true},
+    {"name": "aideo", "model": "aideo-runtime", "is_default": false}
+  ],
+  "default": "openai"
+}
+```
+
+**配置方式**（环境变量）：
+
+```bash
+# 多供应商 JSON（推荐）
+AIDEO_AI_PROVIDERS='[{"name":"openai","type":"openai","base_url":"https://api.openai.com/v1","api_key":"sk-...","model":"gpt-4o"},{"name":"aideo","type":"runtime"}]'
+
+# 或单供应商（兼容）
+AIDEO_AI_PROVIDER=openai
+AIDEO_AI_BASE_URL=https://api.openai.com/v1
+AIDEO_AI_API_KEY=sk-...
+AIDEO_AI_MODEL=gpt-4o
+```
+
+| 供应商 type | 说明 |
+|---|---|
+| `openai` | OpenAI 兼容接口（OpenAI / vLLM / Ollama / Groq / DeepSeek …） |
+| `runtime` | aideo-runtime 的 chat / text_conversation 能力 |
+| `stub` | 无 API key 时的 mock 回退（默认） |
+
+**前端使用**：在 `POST /generate`、`POST /canvas/structure` 等请求中加 `"ai_provider": "openai"` 选择供应商，不传则用服务端默认值。
+
+> `"aideo"` 供应商即使用 aideo-runtime。前端可硬编码此 name，后端通过配置决定走哪个实例。
+
+---
+
 ### 结果
 
 ```
