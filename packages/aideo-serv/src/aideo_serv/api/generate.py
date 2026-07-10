@@ -31,6 +31,15 @@ and composition notes. Keep the original structure but enrich each section.
 Preserve all section headers exactly as-is. Do NOT add new sections.
 Return ONLY the enhanced prompt text, no explanations or markdown fences."""
 
+# Language instruction for prompt enhancement
+_ENHANCE_LANG = {
+    "zh": "Write ALL enhanced content in Chinese (简体中文).",
+    "en": "Write ALL enhanced content in English.",
+    "ja": "Write ALL enhanced content in Japanese (日本語).",
+    "ko": "Write ALL enhanced content in Korean (한국어).",
+}
+_ENHANCE_AUTO_LANG = "You MUST write the enhanced prompt in the same language as the input prompt. Detect the language from the prompt and use it for all enhanced content."
+
 # Service-type routing table (shared with tasks.py)
 _SERVICE_FOR_TASK_TYPE: dict[str, str] = {
     "video_generation": "aideo-runtime",
@@ -137,10 +146,16 @@ async def generate(
     enhanced_prompt = flat_prompt
     effective_provider = payload.ai_provider or ai.default_name
     if effective_provider != "stub":
+        # Build system prompt with language instruction
+        if payload.language and payload.language != "auto" and payload.language in _ENHANCE_LANG:
+            enhance_system = f"{_ENHANCE_SYSTEM}\n\n{_ENHANCE_LANG[payload.language]}"
+        else:
+            enhance_system = f"{_ENHANCE_SYSTEM}\n\n{_ENHANCE_AUTO_LANG}"
+
         try:
             enhanced_prompt = await ai.chat(
                 messages=[
-                    {"role": "system", "content": _ENHANCE_SYSTEM},
+                    {"role": "system", "content": enhance_system},
                     {"role": "user", "content": f"Enhance this prompt:\n\n{flat_prompt}"},
                 ],
                 provider=effective_provider,

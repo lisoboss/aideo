@@ -106,6 +106,7 @@ class GenerateRequest(BaseModel):
     ai_enhance_context: list[str] = Field(default_factory=list)
     output_params: GenerationParams = Field(default_factory=GenerationParams)
     ai_provider: str | None = None  # override default AI provider per-request
+    language: str | None = None  # zh/en/ja/ko/auto — AI response language
 
 
 class GenerateResponse(BaseModel):

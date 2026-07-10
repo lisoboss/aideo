@@ -31,6 +31,24 @@ canvas_router = APIRouter(prefix="/canvas", tags=["canvas"])
 # Prompt templates for structured LLM calls
 # ---------------------------------------------------------------------------
 
+# Language instruction map — appended to system prompts
+_LANG_MAP = {
+    "zh": "ALL responses MUST be in Chinese (简体中文). Block content, titles, and descriptions must be in Chinese.",
+    "en": "ALL responses MUST be in English.",
+    "ja": "ALL responses MUST be in Japanese (日本語). Block content, titles, and descriptions must be in Japanese.",
+    "ko": "ALL responses MUST be in Korean (한국어). Block content, titles, and descriptions must be in Korean.",
+}
+_AUTO_LANG_INSTRUCTION = "You MUST respond in the same language as the user's input. Detect the language from their description and use it for ALL block content, titles, and descriptions."
+
+
+def _make_system(base_prompt: str, language: str | None) -> str:
+    """Append language instruction. 'auto'/None → AI auto-detects from input."""
+    if language and language != "auto" and language in _LANG_MAP:
+        return f"{base_prompt}\n\n{_LANG_MAP[language]}"
+    # auto or unset → let AI detect
+    return f"{base_prompt}\n\n{_AUTO_LANG_INSTRUCTION}"
+
+
 STRUCTURE_SYSTEM = """You are an expert prompt engineer for AI video generation.
 Decompose the user's description into typed PromptBlocks.
 
@@ -228,7 +246,7 @@ async def structure(
     try:
         result = await ai.chat_json(
             messages=[
-                {"role": "system", "content": STRUCTURE_SYSTEM},
+                {"role": "system", "content": _make_system(STRUCTURE_SYSTEM, request.language)},
                 {"role": "user", "content": request.description},
             ],
             provider=request.ai_provider,
@@ -275,7 +293,7 @@ async def complete(
     try:
         result = await ai.chat_json(
             messages=[
-                {"role": "system", "content": COMPLETE_SYSTEM},
+                {"role": "system", "content": _make_system(COMPLETE_SYSTEM, request.language)},
                 {"role": "user", "content": user_msg},
             ],
             provider=request.ai_provider,
@@ -318,7 +336,7 @@ async def inspire(
     try:
         result = await ai.chat_json(
             messages=[
-                {"role": "system", "content": INSPIRE_SYSTEM},
+                {"role": "system", "content": _make_system(INSPIRE_SYSTEM, request.language)},
                 {"role": "user", "content": f"Theme: {request.theme}"},
             ],
             provider=request.ai_provider,

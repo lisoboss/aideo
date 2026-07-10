@@ -15,6 +15,7 @@ class StructureRequest(BaseModel):
 
     description: str = Field(min_length=1, max_length=4096)
     ai_provider: str | None = None  # override default AI provider per-request
+    language: str | None = None  # zh/en/ja/ko/auto — AI response language
 
 
 class StructureResponse(BaseModel):
@@ -35,6 +36,7 @@ class CompleteRequest(BaseModel):
     existing_blocks: list[PromptBlock] = Field(default_factory=list)
     mode: str = "completion"  # completion | suggestion
     ai_provider: str | None = None  # override default AI provider per-request
+    language: str | None = None  # zh/en/ja/ko/auto — AI response language
 
 
 class CompleteSuggestion(BaseModel):
@@ -60,6 +62,7 @@ class InspireRequest(BaseModel):
 
     theme: str = Field(min_length=1, max_length=512)
     ai_provider: str | None = None  # override default AI provider per-request
+    language: str | None = None  # zh/en/ja/ko/auto — AI response language
 
 
 class InspireTheme(BaseModel):
