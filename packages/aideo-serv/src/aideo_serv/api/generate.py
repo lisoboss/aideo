@@ -146,9 +146,10 @@ async def generate(
     enhanced_prompt = flat_prompt
     effective_provider = payload.ai_provider or ai.default_name
     if effective_provider != "stub":
-        # Build system prompt with language instruction
-        if payload.language and payload.language != "auto" and payload.language in _ENHANCE_LANG:
-            enhance_system = f"{_ENHANCE_SYSTEM}\n\n{_ENHANCE_LANG[payload.language]}"
+        # Build system prompt with language instruction (normalize zh-CN → zh)
+        lang = payload.language[:2] if payload.language else None
+        if lang and lang in _ENHANCE_LANG:
+            enhance_system = f"{_ENHANCE_SYSTEM}\n\n{_ENHANCE_LANG[lang]}"
         else:
             enhance_system = f"{_ENHANCE_SYSTEM}\n\n{_ENHANCE_AUTO_LANG}"
 

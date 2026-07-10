@@ -392,7 +392,7 @@ POST /generate
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `text` | string | 是 | 需要纠错的原始文本 |
-| `language` | string | 否 | `zh`=繁→简，nil=自动 |
+| `language` | string | 否 | `zh`/`zh-CN`=繁→简，`ja`/`ko`/`en` 指定语言，nil/auto=AI 自动检测 |
 | `ai_provider` | string | 否 | 覆盖默认 AI 供应商 |
 
 ---
@@ -435,51 +435,7 @@ AIDEO_AI_MODEL=gpt-4o
 | `runtime` | aideo-runtime 的 chat / text_conversation 能力 |
 | `stub` | 无 API key 时的 mock 回退（默认） |
 
-**前端使用**：在 `POST /generate`、`POST /canvas/structure` 等请求中加 `"ai_provider": "openai"` 选择供应商，不传则用服务端默认值。
-
-> `"aideo"` 供应商即使用 aideo-runtime。前端可硬编码此 name，后端通过配置决定走哪个实例。
-
----
-
-### AI 供应商发现（NEW）
-
-```
-GET /ai/providers
-```
-
-列出所有已配置的 AI 供应商供前端选择。服务端通过 `AIDEO_AI_PROVIDERS` 环境变量配置。
-
-**Response**：
-```json
-{
-  "providers": [
-    {"name": "openai", "model": "gpt-4o", "is_default": true},
-    {"name": "aideo", "model": "aideo-runtime", "is_default": false}
-  ],
-  "default": "openai"
-}
-```
-
-**配置方式**（环境变量）：
-
-```bash
-# 多供应商 JSON（推荐）
-AIDEO_AI_PROVIDERS='[{"name":"openai","type":"openai","base_url":"https://api.openai.com/v1","api_key":"sk-...","model":"gpt-4o"},{"name":"aideo","type":"runtime"}]'
-
-# 或单供应商（兼容）
-AIDEO_AI_PROVIDER=openai
-AIDEO_AI_BASE_URL=https://api.openai.com/v1
-AIDEO_AI_API_KEY=sk-...
-AIDEO_AI_MODEL=gpt-4o
-```
-
-| 供应商 type | 说明 |
-|---|---|
-| `openai` | OpenAI 兼容接口（OpenAI / vLLM / Ollama / Groq / DeepSeek …） |
-| `runtime` | aideo-runtime 的 chat / text_conversation 能力 |
-| `stub` | 无 API key 时的 mock 回退（默认） |
-
-**前端使用**：在 `POST /generate`、`POST /canvas/structure` 等请求中加 `"ai_provider": "openai"` 选择供应商，不传则用服务端默认值。
+**前端使用**：在所有 AI 端点（`/generate`、`/canvas/*`）请求中加 `"ai_provider": "openai"` 选择供应商，不传则用服务端默认值。`"language"` 字段支持 `zh`/`ja`/`ko`/`en`/`auto`，也可传 locale 格式（`zh-CN`、`ja-JP`），服务端取前 2 位。
 
 > `"aideo"` 供应商即使用 aideo-runtime。前端可硬编码此 name，后端通过配置决定走哪个实例。
 
@@ -539,7 +495,7 @@ WS   /ws/internal/inference        推理服务注册 + 消息路由
 ## API 总结
 
 ```
-新增（16个端点 + 1个WS）                   保留（不变）
+新增（18个端点 + 2个WS）                   保留（不变）
 ─────────────────────────               ─────────────────
 POST   /projects                       GET    /health
 GET    /projects                       POST   /tasks
@@ -556,6 +512,7 @@ POST   /generate
 POST   /canvas/structure
 POST   /canvas/complete
 POST   /canvas/inspire
+POST   /canvas/correct
 GET    /ai/providers
 WS     /ws/projects/{id}
 ```

@@ -140,6 +140,9 @@ class OpenAIProvider(AIProvider):
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
 
+        if not content or not content.strip():
+            return {"raw_text": ""}
+
         try:
             return json.loads(content)
         except json.JSONDecodeError:
@@ -147,7 +150,10 @@ class OpenAIProvider(AIProvider):
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0]
-            return json.loads(content.strip())
+            try:
+                return json.loads(content.strip())
+            except json.JSONDecodeError:
+                return {"raw_text": content}
 
     def info(self) -> dict:
         return {

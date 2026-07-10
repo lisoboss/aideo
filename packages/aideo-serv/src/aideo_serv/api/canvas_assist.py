@@ -14,6 +14,8 @@ from aideo_serv.models.assist import (
     CompleteRequest,
     CompleteResponse,
     CompleteSuggestion,
+    CorrectRequest,
+    CorrectResponse,
     InspireRequest,
     InspireResponse,
     InspireTheme,
@@ -43,7 +45,13 @@ _AUTO_LANG_INSTRUCTION = "You MUST respond in the same language as the user's in
 
 def _make_system(base_prompt: str, language: str | None) -> str:
     """Append language instruction. 'auto'/None → AI auto-detects from input."""
-    if language and language != "auto" and language in _LANG_MAP:
+    # Normalize: zh-CN/zh-Hans → zh, ja-JP → ja, etc.
+    if not language:
+        return f"{base_prompt}\n\n{_AUTO_LANG_INSTRUCTION}"
+    lang = language[:2]
+    if lang in _LANG_MAP:
+        return f"{base_prompt}\n\n{_LANG_MAP[lang]}"
+    # "auto" or unknown → let AI detect
         return f"{base_prompt}\n\n{_LANG_MAP[language]}"
     # auto or unset → let AI detect
     return f"{base_prompt}\n\n{_AUTO_LANG_INSTRUCTION}"
@@ -362,3 +370,47 @@ async def inspire(
     # Fallback to stub
     themes = _stub_inspire(request.theme)
     return InspireResponse(themes=themes)
+
+
+# ---------------------------------------------------------------------------
+# POST /canvas/correct
+# ---------------------------------------------------------------------------
+
+CORRECT_SYSTEM = """You are a text proofreader for speech recognition output.
+Fix homophone errors, spelling mistakes, and punctuation.
+For Chinese (zh): also convert traditional Chinese (繁體) to simplified Chinese (简体).
+Do NOT change the meaning or add new content — only correct errors.
+Return ONLY the corrected text. No explanations, no markdown, no JSON wrapper — just the corrected text."""
+
+
+@canvas_router.post("/correct")
+async def correct(
+    request: CorrectRequest,
+    ai: AIClient = Depends(get_ai_client),
+) -> CorrectResponse:
+    """Correct speech-to-text output with AI.
+
+    Fixes homophone errors, spelling, punctuation. For zh: trad→simp conversion.
+    Falls back to returning the original text on AI failure.
+    """
+    # Normalize language: zh-CN/zh-Hans → zh, zh-TW/zh-Hant → zh
+    lang = (request.language or "")[:2] if request.language else None
+
+    try:
+        corrected = await ai.chat(
+            messages=[
+                {"role": "system", "content": _make_system(CORRECT_SYSTEM, lang)},
+                {"role": "user", "content": request.text},
+            ],
+            provider=request.ai_provider,
+            temperature=0.1,
+            max_tokens=min(len(request.text) * 2 + 200, 8192),
+        )
+        corrected = corrected.strip().strip('"').strip("'")
+        if corrected and corrected != request.text.strip():
+            logger.info("AI correct: %d → %d chars", len(request.text), len(corrected))
+            return CorrectResponse(corrected=corrected)
+    except Exception:
+        logger.exception("AI correct failed, returning original text")
+
+    return CorrectResponse(corrected=request.text)

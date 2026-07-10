@@ -79,3 +79,22 @@ class InspireResponse(BaseModel):
     """List of inspiration themes."""
 
     themes: list[InspireTheme]
+
+
+# ---------------------------------------------------------------------------
+# POST /canvas/correct
+# ---------------------------------------------------------------------------
+
+
+class CorrectRequest(BaseModel):
+    """Speech-to-text output → AI-corrected text."""
+
+    text: str = Field(min_length=1, max_length=8192)
+    language: str | None = None  # zh=繁→简, nil=auto
+    ai_provider: str | None = None  # override default AI provider per-request
+
+
+class CorrectResponse(BaseModel):
+    """Corrected text result."""
+
+    corrected: str

@@ -204,14 +204,14 @@ async def transcribe_stream(websocket: WebSocket):
             # ---- receive binary audio ---------------------------------
             try:
                 audio_bytes = await websocket.receive_bytes()
-            except WebSocketDisconnect:
+            except (WebSocketDisconnect, RuntimeError):
                 break
 
             if not audio_bytes:
                 continue
 
-            # ---- save to temp file ------------------------------------
-            temp_dir = Path(settings.output_root) / ".stream_tmp"
+            # ---- save to temp file (absolute path for runtime) ---------
+            temp_dir = Path(settings.output_root).resolve() / ".stream_tmp"
             temp_dir.mkdir(parents=True, exist_ok=True)
             temp_path = temp_dir / f"chunk_{uuid4().hex[:12]}.wav"
             temp_path.write_bytes(audio_bytes)
@@ -256,31 +256,36 @@ async def transcribe_stream(websocket: WebSocket):
                     event = await queue.get()
                     if event is None:
                         break
-                    await websocket.send_json(event)
+                    try:
+                        await websocket.send_json(event)
+                    except (WebSocketDisconnect, RuntimeError):
+                        break  # client disconnected, stop sending
 
                     parsed = event if isinstance(event, dict) else {}
                     etype = parsed.get("type", "")
                     if etype in ("completed", "error"):
-                        # Send a clean "result" / "error" event with full data
-                        final_task = svc.get(task_id)
-                        if etype == "completed" and final_task.result_data:
-                            await websocket.send_json({
-                                "type": "result",
-                                "task_id": str(task_id),
-                                "data": final_task.result_data,
-                            })
-                        elif etype == "error":
-                            await websocket.send_json({
-                                "type": "error",
-                                "task_id": str(task_id),
-                                "data": {
-                                    "message": final_task.error_message or "Unknown error",
-                                },
-                            })
+                        try:
+                            final_task = svc.get(task_id)
+                            if etype == "completed" and final_task.result_data:
+                                await websocket.send_json({
+                                    "type": "result",
+                                    "task_id": str(task_id),
+                                    "data": final_task.result_data,
+                                })
+                            elif etype == "error":
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "task_id": str(task_id),
+                                    "data": {
+                                        "message": final_task.error_message or "Unknown error",
+                                    },
+                                })
+                        except (WebSocketDisconnect, RuntimeError):
+                            pass
                         break
 
             except LookupError:
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type": "error",
                     "data": {
                         "message": f"Inference service '{service_type}' is not connected",
@@ -288,7 +293,7 @@ async def transcribe_stream(websocket: WebSocket):
                 })
             except Exception:
                 logger.exception("Stream transcription failed for task %s", task_id)
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type": "error",
                     "data": {"message": "Internal server error during transcription"},
                 })
@@ -308,6 +313,14 @@ async def transcribe_stream(websocket: WebSocket):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+async def _safe_send(websocket: WebSocket, data: dict) -> None:
+    """Send JSON over WS, silently drop if client already disconnected."""
+    try:
+        await websocket.send_json(data)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
 
 
 def _build_typed_event(task, event_type: str, data: dict) -> dict:
