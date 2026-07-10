@@ -8,8 +8,17 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import torch
-
-from aideo_runtime.video.provider import VideoProvider
+from aideo_runtime.video.provider import VideoProvider, register_provider
+from ltx_core.loader import (
+    LTXV_LORA_COMFY_RENAMING_MAP,
+    LoraPathStrengthAndSDOps,
+)
+from ltx_core.model.video_vae import TilingConfig, get_video_chunks_number
+from ltx_pipelines.distilled import DistilledPipeline
+from ltx_pipelines.utils.constants import DISTILLED_SIGMAS, STAGE_2_DISTILLED_SIGMAS
+from ltx_pipelines.utils.media_io import encode_video
+from ltx_pipelines.utils.quantization_factory import QuantizationKind
+from ltx_pipelines.utils.types import OffloadMode
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +30,7 @@ def _env(key: str, default: str) -> str:
 class LTX2VideoProvider(VideoProvider):
     """LTX-2 text-to-video generation backed by the distilled ltx-pipelines."""
 
-    provider_name = "ltx2"
+    provider_name = "ltx2@video.provider"
 
     def __init__(
         self,
@@ -80,17 +89,12 @@ class LTX2VideoProvider(VideoProvider):
         loop = asyncio.get_running_loop()
 
         def _build():
-            from ltx_core.loader import (
-                LoraPathStrengthAndSDOps,
-                LTXV_LORA_COMFY_RENAMING_MAP,
-            )
-            from ltx_pipelines.distilled import DistilledPipeline
-            from ltx_pipelines.utils.quantization_factory import QuantizationKind
-            from ltx_pipelines.utils.types import OffloadMode
 
             mode = OffloadMode(self._offload_mode)
             q_policy = (
-                QuantizationKind(self._quantization).to_policy(self._distilled_checkpoint)
+                QuantizationKind(self._quantization).to_policy(
+                    self._distilled_checkpoint
+                )
                 if self._quantization
                 else None
             )
@@ -98,14 +102,20 @@ class LTX2VideoProvider(VideoProvider):
             if self._lora_path:
                 loras.append(
                     LoraPathStrengthAndSDOps(
-                        self._lora_path, self._lora_strength, LTXV_LORA_COMFY_RENAMING_MAP,
+                        self._lora_path,
+                        self._lora_strength,
+                        LTXV_LORA_COMFY_RENAMING_MAP,
                     )
                 )
             logger.info(
                 "Building DistilledPipeline — checkpoint=%s gemma=%s upsampler=%s "
                 "device=%s offload=%s quantization=%s",
-                self._distilled_checkpoint, self._gemma_root, self._spatial_upsampler_path,
-                self._device_str, mode.value, self._quantization or "none",
+                self._distilled_checkpoint,
+                self._gemma_root,
+                self._spatial_upsampler_path,
+                self._device_str,
+                mode.value,
+                self._quantization or "none",
             )
             device = torch.device(self._device_str)
             return DistilledPipeline(
@@ -148,24 +158,31 @@ class LTX2VideoProvider(VideoProvider):
         yield {"progress": 5.0, "message": "Pipeline ready, starting stage 1/2..."}
 
         def _run():
-            from ltx_core.model.video_vae import TilingConfig, get_video_chunks_number
-            from ltx_pipelines.utils.constants import DISTILLED_SIGMAS, STAGE_2_DISTILLED_SIGMAS
-            from ltx_pipelines.utils.media_io import encode_video
 
             tiling_config = TilingConfig.default()
             video_chunks_number = get_video_chunks_number(num_frames, tiling_config)
 
             video_iter, audio = self._pipeline(
-                prompt=prompt, seed=seed, height=height, width=width,
-                num_frames=num_frames, frame_rate=frame_rate, images=[],
-                tiling_config=tiling_config, enhance_prompt=enhance_prompt,
-                stage_1_sigmas=DISTILLED_SIGMAS, stage_2_sigmas=STAGE_2_DISTILLED_SIGMAS,
+                prompt=prompt,
+                seed=seed,
+                height=height,
+                width=width,
+                num_frames=num_frames,
+                frame_rate=frame_rate,
+                images=[],
+                tiling_config=tiling_config,
+                enhance_prompt=enhance_prompt,
+                stage_1_sigmas=DISTILLED_SIGMAS,
+                stage_2_sigmas=STAGE_2_DISTILLED_SIGMAS,
             )
             filename = f"{task_id}.mp4" if task_id else "video.mp4"
             output_path = str(self._output_dir / filename)
             encode_video(
-                video=video_iter, fps=int(frame_rate), audio=audio,
-                output_path=output_path, video_chunks_number=video_chunks_number,
+                video=video_iter,
+                fps=int(frame_rate),
+                audio=audio,
+                output_path=output_path,
+                video_chunks_number=video_chunks_number,
             )
             return output_path
 
@@ -175,11 +192,26 @@ class LTX2VideoProvider(VideoProvider):
         while not task.done():
             elapsed = time.monotonic() - t0
             if elapsed < stage_1_seconds:
-                pct, msg = 5.0 + (elapsed / stage_1_seconds) * 45.0, "Stage 1/2: denoising at low resolution..."
+                pct, msg = (
+                    5.0 + (elapsed / stage_1_seconds) * 45.0,
+                    "Stage 1/2: denoising at low resolution...",
+                )
             elif elapsed < stage_1_seconds + stage_2_seconds:
-                pct, msg = 50.0 + ((elapsed - stage_1_seconds) / stage_2_seconds) * 45.0, "Stage 2/2: upsampling and refining..."
+                pct, msg = (
+                    50.0 + ((elapsed - stage_1_seconds) / stage_2_seconds) * 45.0,
+                    "Stage 2/2: upsampling and refining...",
+                )
             else:
-                pct, msg = 95.0 + min(4.0, (elapsed - stage_1_seconds - stage_2_seconds) / encode_seconds * 4.0), "Encoding video..."
+                pct, msg = (
+                    95.0
+                    + min(
+                        4.0,
+                        (elapsed - stage_1_seconds - stage_2_seconds)
+                        / encode_seconds
+                        * 4.0,
+                    ),
+                    "Encoding video...",
+                )
             yield {"progress": round(min(pct, 99.0), 1), "message": msg}
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=5)
@@ -188,3 +220,7 @@ class LTX2VideoProvider(VideoProvider):
 
         await task
         yield {"progress": 100.0, "message": "Generation complete"}
+
+
+# Register the LTX2 video provider so it can be used in the system.
+register_provider(LTX2VideoProvider)

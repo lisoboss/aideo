@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 
-from aideo_runtime.chat.provider import ChatProvider
+from aideo_runtime.chat.provider import ChatProvider, register_provider
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class StubChatProvider(ChatProvider):
     """Placeholder chat provider (llama.cpp / vLLM / ollama — not yet implemented)."""
 
-    provider_name = "stub-chat"
+    provider_name = "stub@chat.provider"
 
     @property
     def is_loaded(self) -> bool:
@@ -32,5 +32,12 @@ class StubChatProvider(ChatProvider):
         yield {
             "progress": 100.0,
             "message": "Done",
-            "result_data": {"reply": "LLM module not yet implemented.", "model": "stub"},
+            "result_data": {
+                "reply": "LLM module not yet implemented.",
+                "model": "stub",
+            },
         }
+
+
+# Register the stub provider so it can be used in the system.
+register_provider(StubChatProvider)

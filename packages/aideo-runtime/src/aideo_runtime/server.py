@@ -32,6 +32,10 @@ from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
 
+
+import websockets
+from aideo_runtime import chat, speech, video, vision
+
 # ---------------------------------------------------------------------------
 # Provider registry
 # ---------------------------------------------------------------------------
@@ -61,19 +65,22 @@ def _create_registry(
     input_root: str,
 ) -> ProviderRegistry:
     """Build the provider registry with concrete implementations."""
-    from aideo_runtime.chat.stub import StubChatProvider
-    from aideo_runtime.speech.faster_whisper import FasterWhisperProvider
-    from aideo_runtime.vision.stub import StubVisionProvider
+    from aideo_runtime.chat import get_provider as get_chat_provider
+    from aideo_runtime.speech import get_provider as get_speech_provider
+    from aideo_runtime.vision import get_provider as get_vision_provider
 
     registry = ProviderRegistry()
 
     # ---- speech-to-text ------------------------------------------------
-    registry.register("speech_to_text", FasterWhisperProvider(
-        model_size_or_path=os.environ.get("WHISPER_MODEL", "large-v3"),
-        device=os.environ.get("WHISPER_DEVICE", "cuda"),
-        compute_type=os.environ.get("WHISPER_COMPUTE_TYPE", "float16"),
-        model_root=model_root,
-    ))
+    registry.register(
+        "speech_to_text",
+        FasterWhisperProvider(
+            model_size_or_path=os.environ.get("WHISPER_MODEL", "large-v3"),
+            device=os.environ.get("WHISPER_DEVICE", "cuda"),
+            compute_type=os.environ.get("WHISPER_COMPUTE_TYPE", "float16"),
+            model_root=model_root,
+        ),
+    )
 
     # ---- text conversation ---------------------------------------------
     registry.register("text_conversation", StubChatProvider())
@@ -91,11 +98,6 @@ def _create_registry(
 # ---------------------------------------------------------------------------
 # WebSocket client
 # ---------------------------------------------------------------------------
-
-try:
-    import websockets
-except ImportError:
-    websockets = None  # type: ignore[assignment]
 
 
 class AideoWSClient:
@@ -121,12 +123,20 @@ class AideoWSClient:
                     self._ws = ws
                     backoff = 1.0
 
-                    await ws.send(json.dumps({
-                        "type": "register",
-                        "service_type": "aideo-runtime",
-                        "capabilities": self._registry.capabilities if self._registry else [],
-                        "version": "0.1.0",
-                    }))
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "type": "register",
+                                "service_type": "aideo-runtime",
+                                "capabilities": (
+                                    self._registry.capabilities
+                                    if self._registry
+                                    else []
+                                ),
+                                "version": "0.1.0",
+                            }
+                        )
+                    )
                     ack = await asyncio.wait_for(ws.recv(), timeout=30.0)
                     logger.info("Registered with aideo-serv: %s", ack)
 
@@ -140,7 +150,9 @@ class AideoWSClient:
             except asyncio.TimeoutError:
                 logger.warning("Registration timed out, reconnecting in %ss", backoff)
             except Exception as exc:
-                logger.warning("WebSocket disconnected (%s), reconnecting in %ss", exc, backoff)
+                logger.warning(
+                    "WebSocket disconnected (%s), reconnecting in %ss", exc, backoff
+                )
             finally:
                 self._ws = None
 
@@ -176,34 +188,64 @@ class AideoWSClient:
     async def _run_provider(self, task_id: str, task_type: str, data: dict) -> None:
         """Execute a task through the registered provider."""
         # Lazy-load video provider on first use (heavy torch import)
-        if task_type == "video_generation" and self._registry and self._registry.get(task_type) is None:
+        if (
+            task_type == "video_generation"
+            and self._registry
+            and self._registry.get(task_type) is None
+        ):
             from aideo_runtime.video.ltx2 import LTX2VideoProvider
 
-            model_root = data.get("model_root", "") or os.environ.get("AIDEO_MODEL_ROOT", "/mnt/g/AI/models")
-            output_root = data.get("output_root", "") or os.environ.get("AIDEO_OUTPUT_ROOT", "./data/output")
-            input_root = data.get("input_root", "") or os.environ.get("AIDEO_INPUT_ROOT", "./data/input")
+            model_root = data.get("model_root", "") or os.environ.get(
+                "AIDEO_MODEL_ROOT", "/mnt/g/AI/models"
+            )
+            output_root = data.get("output_root", "") or os.environ.get(
+                "AIDEO_OUTPUT_ROOT", "./data/output"
+            )
+            input_root = data.get("input_root", "") or os.environ.get(
+                "AIDEO_INPUT_ROOT", "./data/input"
+            )
             params = data.get("params", {})
 
             provider = LTX2VideoProvider(
-                distilled_checkpoint_path=str(Path(model_root) / "LTX-2.3" / "ltx-2.3-22b-distilled-1.1.safetensors"),
-                gemma_root=str(Path(model_root) / "gemma-3-12b-it-qat-q4_0-unquantized"),
-                spatial_upsampler_path=str(Path(model_root) / "LTX-2.3" / "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"),
-                lora_path=str(Path(model_root) / "LTX-2.3" / "ltx-2.3-22b-distilled-lora-384-1.1.safetensors"),
+                distilled_checkpoint_path=str(
+                    Path(model_root)
+                    / "LTX-2.3"
+                    / "ltx-2.3-22b-distilled-1.1.safetensors"
+                ),
+                gemma_root=str(
+                    Path(model_root) / "gemma-3-12b-it-qat-q4_0-unquantized"
+                ),
+                spatial_upsampler_path=str(
+                    Path(model_root)
+                    / "LTX-2.3"
+                    / "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+                ),
+                lora_path=str(
+                    Path(model_root)
+                    / "LTX-2.3"
+                    / "ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
+                ),
                 lora_strength=float(params.pop("lora_strength", "1.0")),
-                device=params.pop("device", None) or os.environ.get("LTX2_DEVICE", "cuda"),
+                device=params.pop("device", None)
+                or os.environ.get("LTX2_DEVICE", "cuda"),
                 output_dir=output_root,
                 input_root=input_root,
-                offload_mode=params.pop("offload_mode", None) or os.environ.get("LTX2_OFFLOAD_MODE", "none"),
-                quantization=params.pop("quantization", None) or os.environ.get("LTX2_QUANTIZATION", "fp8-cast"),
+                offload_mode=params.pop("offload_mode", None)
+                or os.environ.get("LTX2_OFFLOAD_MODE", "none"),
+                quantization=params.pop("quantization", None)
+                or os.environ.get("LTX2_QUANTIZATION", "fp8-cast"),
             )
             self._registry.register("video_generation", provider)
 
         provider = self._registry.get(task_type) if self._registry else None
         if provider is None:
-            await self._ws_send({
-                "type": "error", "task_id": task_id,
-                "data": {"message": f"No provider for task_type: {task_type}"},
-            })
+            await self._ws_send(
+                {
+                    "type": "error",
+                    "task_id": task_id,
+                    "data": {"message": f"No provider for task_type: {task_type}"},
+                }
+            )
             return
 
         try:
@@ -213,7 +255,11 @@ class AideoWSClient:
                 kwargs["prompt"] = data.get("prompt", "")
             elif task_type == "speech_to_text":
                 input_files = data.get("input_files", [])
-                kwargs["audio_path"] = input_files[0]["path"] if input_files else data.get("params", {}).get("audio_path", "")
+                kwargs["audio_path"] = (
+                    input_files[0]["path"]
+                    if input_files
+                    else data.get("params", {}).get("audio_path", "")
+                )
                 kwargs["language"] = data.get("params", {}).get("language")
             elif task_type == "text_conversation":
                 kwargs["messages"] = data.get("params", {}).get("messages", [])
@@ -224,24 +270,38 @@ class AideoWSClient:
 
             async for event in provider.run(**kwargs):
                 if "result_data" in event:
-                    await self._ws_send({
-                        "type": "completed", "task_id": task_id,
-                        "data": {
-                            "result_path": event.get("result_path", ""),
-                            "result_data": event["result_data"],
-                        },
-                    })
+                    await self._ws_send(
+                        {
+                            "type": "completed",
+                            "task_id": task_id,
+                            "data": {
+                                "result_path": event.get("result_path", ""),
+                                "result_data": event["result_data"],
+                            },
+                        }
+                    )
                 else:
-                    await self._ws_send({
-                        "type": "progress", "task_id": task_id,
-                        "data": event,
-                    })
+                    await self._ws_send(
+                        {
+                            "type": "progress",
+                            "task_id": task_id,
+                            "data": event,
+                        }
+                    )
 
         except asyncio.CancelledError:
-            await self._ws_send({"type": "cancelled", "task_id": task_id, "data": {"message": "Cancelled"}})
+            await self._ws_send(
+                {
+                    "type": "cancelled",
+                    "task_id": task_id,
+                    "data": {"message": "Cancelled"},
+                }
+            )
         except Exception as exc:
             logger.exception("Task %s failed", task_id)
-            await self._ws_send({"type": "error", "task_id": task_id, "data": {"message": str(exc)}})
+            await self._ws_send(
+                {"type": "error", "task_id": task_id, "data": {"message": str(exc)}}
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -285,8 +345,14 @@ async def shutdown() -> None:
 @app.get("/health")
 async def health() -> dict:
     connected = _ws_client is not None and _ws_client._ws is not None
-    caps = _ws_client._registry.capabilities if _ws_client and _ws_client._registry else []
-    return {"status": "ok" if connected else "connecting", "service": "aideo-runtime", "capabilities": caps}
+    caps = (
+        _ws_client._registry.capabilities if _ws_client and _ws_client._registry else []
+    )
+    return {
+        "status": "ok" if connected else "connecting",
+        "service": "aideo-runtime",
+        "capabilities": caps,
+    }
 
 
 def main() -> None:
