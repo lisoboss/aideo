@@ -90,7 +90,7 @@ struct ProjectListView: View {
                 .buttonStyle(.plain)
 
                 if let lastCheck = appState.lastCheckTime {
-                    Text("上次检查 \(lastCheck.formatted(.relative(presentation: .numeric)))")
+                    Text("上次检查 \(lastCheckText(lastCheck))")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -144,6 +144,12 @@ struct ProjectListView: View {
                 viewModel.createProject()
             }
         }
+    }
+
+    private func lastCheckText(_ date: Date) -> String {
+        let seconds = Date().timeIntervalSince(date)
+        if seconds < 5 { return "刚刚" }
+        return date.formatted(.relative(presentation: .named))
     }
 }
 

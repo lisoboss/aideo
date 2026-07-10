@@ -169,8 +169,11 @@ struct CanvasView: View {
         }
         .navigationTitle(project.name)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { canvasSize = $0 }
-        .onAppear { vm.load(from: project) }
-        .onDisappear { vm.save(to: project) }
+        .onAppear { vm.load(from: project, ws: appState.wsClient) }
+        .onDisappear {
+            vm.save(to: project)
+            vm.disconnectProjectWS()
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
             vm.save(to: project)
         }

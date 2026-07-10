@@ -9,6 +9,7 @@ final class AppState {
         didSet {
             apiClient = APIClient(baseURL: serverURL)
             wsClient = WebSocketClient(serverURL: serverURL)
+            speechRecognizer = SpeechRecognizer(serverURL: serverURL)
         }
     }
 
@@ -17,6 +18,9 @@ final class AppState {
 
     /// WebSocket 客户端
     private(set) var wsClient: WebSocketClient
+
+    /// 语音识别器
+    private(set) var speechRecognizer: SpeechRecognizer
 
     /// 下载管理器
     let downloadManager = DownloadManager()
@@ -54,6 +58,7 @@ final class AppState {
         let url = "http://192.168.31.3:8000"
         self.apiClient = APIClient(baseURL: url)
         self.wsClient = WebSocketClient(serverURL: url)
+        self.speechRecognizer = SpeechRecognizer(serverURL: url)
     }
 
     // MARK: - Health Monitor

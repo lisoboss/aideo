@@ -2,6 +2,7 @@ import SwiftUI
 
 /// AI 增强节点 — 简单描述 → LLM 详细提示词
 struct AIEnhanceNodeView: View {
+    @Environment(AppState.self) private var appState
     let node: AIEnhanceNode
     let isConnectMode: Bool
     let onDelete: () -> Void
@@ -14,6 +15,8 @@ struct AIEnhanceNodeView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var inputText: String = ""
     @State private var isProcessing: Bool = false
+    @State private var isRecording: Bool = false
+    @State private var isTranscribing: Bool = false
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -51,6 +54,19 @@ struct AIEnhanceNodeView: View {
                         }
                     }
                     Spacer()
+                    // 语音输入
+                    Button {
+                        handleVoiceInput()
+                    } label: {
+                        if isTranscribing {
+                            ProgressView().scaleEffect(0.6).tint(.white)
+                        } else {
+                            Image(systemName: isRecording ? "mic.fill" : "mic")
+                                .font(.caption2)
+                        }
+                    }
+                    .foregroundStyle(isRecording ? .red : .white.opacity(0.8))
+                    .buttonStyle(.plain).disabled(isProcessing || isTranscribing)
                     Button {
                         guard !inputText.isEmpty else { return }
                         let text = inputText
@@ -131,5 +147,45 @@ struct AIEnhanceNodeView: View {
                     dragOffset = .zero; onDrag(n)
                 }
         )
+    }
+
+    // MARK: - Voice Input
+
+    private func handleVoiceInput() {
+        guard !isRecording else {
+            Task { await appState.speechRecognizer.stopRecording() }
+            isRecording = false
+            isTranscribing = true
+            return
+        }
+        isRecording = true
+        isTranscribing = false
+        Task {
+            do {
+                let stream = try await appState.speechRecognizer.startRecording()
+                for await event in stream {
+                    await MainActor.run {
+                        switch event {
+                        case .transcribing:
+                            isRecording = false
+                            isTranscribing = true
+                        case .result(let text):
+                            if inputText.isEmpty { inputText = text }
+                            else { inputText += " " + text }
+                            isRecording = false
+                            isTranscribing = false
+                        case .error:
+                            isRecording = false
+                            isTranscribing = false
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isRecording = false
+                    isTranscribing = false
+                }
+            }
+        }
     }
 }

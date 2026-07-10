@@ -30,8 +30,9 @@ final class CanvasViewModel {
     /// 当前项目 ID（云端 Project），用于项目级 WS 和同步
     var projectId: UUID?
 
-    /// 是否正在使用项目级 WS
-    private var usingProjectWS: Bool = false
+    /// 画布级共享项目 WS — 单连接，多输出节点事件分发
+    private var projectWSTask: Task<Void, Never>?
+    private var wsContinuations: [UUID: AsyncStream<ProjectWSEvent>.Continuation] = [:]
 
     /// 故事板模式
     var showStoryboard: Bool = false
@@ -63,12 +64,14 @@ final class CanvasViewModel {
 
     // MARK: - Project Persistence
 
-    func load(from project: CanvasProject) {
+    func load(from project: CanvasProject, ws: WebSocketClient? = nil) {
         promptBlocks = project.promptBlocks
         mediaOutputs = project.mediaOutputs
         referenceNodes = project.referenceNodes
         aiEnhanceNodes = project.aiEnhanceNodes
         connections = project.connections
+        // 打开画布级项目 WS
+        if let ws { connectProjectWS(ws: ws) }
     }
 
     func save(to project: CanvasProject) {
@@ -457,7 +460,56 @@ final class CanvasViewModel {
         return result
     }
 
-    /// 提交生成任务 — v2 优先（结构化提交），fallback v1（扁平 prompt）
+    // MARK: - Shared Project WebSocket
+
+    /// 画布级项目 WS 连接（打开画布时调用一次）
+    func connectProjectWS(ws: WebSocketClient) {
+        guard let pid = projectId else { return }
+        guard projectWSTask == nil else { return }
+
+        projectWSTask = Task {
+            let stream = await ws.connectProject(projectId: pid)
+            for await event in stream {
+                await MainActor.run {
+                    if let nodeIdStr = event.outputNodeId,
+                       let nodeId = UUID(uuidString: nodeIdStr),
+                       let cont = wsContinuations[nodeId] {
+                        cont.yield(event)
+                    }
+                    if event.outputNodeId == nil {
+                        for (_, cont) in wsContinuations {
+                            cont.yield(event)
+                        }
+                    }
+                }
+            }
+            projectWSTask = nil
+        }
+    }
+
+    /// 断开画布级项目 WS（切换/关闭画布时调用）
+    func disconnectProjectWS() {
+        projectWSTask?.cancel()
+        projectWSTask = nil
+        wsContinuations.removeAll()
+    }
+
+    /// 注册 output node 的事件流
+    private func subscribeToProjectWS(outputNodeId: UUID, ws: WebSocketClient) -> AsyncStream<ProjectWSEvent> {
+        if projectWSTask == nil { connectProjectWS(ws: ws) } // fallback: 隐式连接
+        return AsyncStream { continuation in
+            wsContinuations[outputNodeId] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.wsContinuations.removeValue(forKey: outputNodeId)
+                }
+            }
+        }
+    }
+
+    // MARK: - Generate
+
+    /// 提交生成任务
     @MainActor
     func submitGeneration(outputNodeId: UUID, client: APIClient, ws: WebSocketClient, language: String? = nil) async {
         guard let idx = mediaOutputs.firstIndex(where: { $0.id == outputNodeId }) else { return }
@@ -500,15 +552,12 @@ final class CanvasViewModel {
             mediaOutputs[idx].taskId = task.id
             mediaOutputs[idx].promptSummary = task.prompt
 
-            // 项目级 WS
-            if let pid = projectId {
-                usingProjectWS = true
-                let stream = await ws.connectProject(projectId: pid)
+            // 画布级共享项目 WS（单连接，多输出节点事件分发）
+            if projectId != nil {
+                let stream = subscribeToProjectWS(outputNodeId: outputNodeId, ws: ws)
                 for await event in stream {
                     await MainActor.run {
-                        if event.outputNodeId == outputNodeId.uuidString || event.outputNodeId == nil {
-                            handleV2WSEvent(event, outputNodeId: outputNodeId)
-                        }
+                        handleV2WSEvent(event, outputNodeId: outputNodeId)
                     }
                 }
             }
@@ -520,7 +569,6 @@ final class CanvasViewModel {
         }
 
         isSubmitting = false
-        usingProjectWS = false
     }
 
     // MARK: - WS Event Handler

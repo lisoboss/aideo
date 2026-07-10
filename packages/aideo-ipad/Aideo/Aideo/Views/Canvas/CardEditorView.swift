@@ -2,11 +2,14 @@ import SwiftUI
 
 /// 卡片编辑浮层 — 修改类型/内容/参数
 struct CardEditorView: View {
+    @Environment(AppState.self) private var appState
     @Binding var block: PromptBlock
     let onDelete: () -> Void
     let onDone: () -> Void
 
     @FocusState private var isFocused: Bool
+    @State private var isRecording = false
+    @State private var isTranscribing = false
 
     var body: some View {
         NavigationStack {
@@ -37,9 +40,15 @@ struct CardEditorView: View {
                 }
 
                 // 内容编辑
-                Section("内容") {
+                Section {
                     TextEditor(text: $block.content)
                         .focused($isFocused).frame(minHeight: 80)
+                } header: {
+                    HStack {
+                        Text("内容")
+                        Spacer()
+                        voiceInputButton
+                    }
                 }
 
                 // 生成参数（内嵌到卡片）
@@ -99,5 +108,64 @@ struct CardEditorView: View {
             .onAppear { isFocused = true }
         }
         .presentationDetents([.large])
+    }
+
+    // MARK: - Voice Input
+
+    private var voiceInputButton: some View {
+        Button {
+            guard !isRecording else {
+                Task { await appState.speechRecognizer.stopRecording() }
+                isRecording = false
+                isTranscribing = true
+                return
+            }
+            isRecording = true
+            isTranscribing = false
+            Task {
+                do {
+                    let stream = try await appState.speechRecognizer.startRecording()
+                    for await event in stream {
+                        await MainActor.run {
+                            switch event {
+                            case .transcribing:
+                                isRecording = false
+                                isTranscribing = true
+                            case .result(let text):
+                                if block.content.isEmpty { block.content = text }
+                                else { block.content += "\n" + text }
+                                isRecording = false
+                                isTranscribing = false
+                            case .error:
+                                isRecording = false
+                                isTranscribing = false
+                            }
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        isRecording = false
+                        isTranscribing = false
+                    }
+                }
+            }
+        } label: {
+            Group {
+                if isTranscribing {
+                    ProgressView().scaleEffect(0.7)
+                } else {
+                    Image(systemName: isRecording ? "mic.fill" : "mic")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(isRecording ? .red : isTranscribing ? .accentColor : .accentColor)
+            .padding(6)
+            .background(Circle().fill(
+                isRecording ? Color.red.opacity(0.15) :
+                isTranscribing ? Color.accentColor.opacity(0.15) :
+                Color.accentColor.opacity(0.1)))
+        }
+        .buttonStyle(.plain)
+        .disabled(isTranscribing)
     }
 }
