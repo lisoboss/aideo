@@ -129,6 +129,39 @@ def download(
     typer.echo(f"Downloaded: {path}")
 
 
+def transcribe(
+    audio_file: str = typer.Argument(..., help="Audio file path to transcribe"),
+    language: str = typer.Option(None, "--language", "-l", help="Language code (auto-detect if not set)"),
+    beam_size: int = typer.Option(5, "--beam-size", help="Beam search width"),
+    word_timestamps: bool = typer.Option(True, "--word-timestamps/--no-word-timestamps"),
+    vad_filter: bool = typer.Option(False, "--vad/--no-vad", help="Voice activity detection filter"),
+    fmt: str = typer.Option("json", "--format", "-f", help="Output format: table|json"),
+    server: str = typer.Option("http://localhost:8000", "--server", "-s"),
+):
+    """Submit a speech-to-text transcription task."""
+    from pathlib import Path
+
+    from aideo_cli.client import AideoClient
+
+    audio_path = Path(audio_file).resolve()
+    if not audio_path.exists():
+        typer.echo(f"Error: file not found: {audio_path}", err=True)
+        raise typer.Exit(code=1)
+
+    client = AideoClient(server=server)
+    params = {
+        "beam_size": beam_size,
+        "word_timestamps": word_timestamps,
+        "vad_filter": vad_filter,
+    }
+    task = _run(client.transcribe(
+        audio_path=str(audio_path),
+        language=language,
+        params=params,
+    ))
+    _print_output(task, fmt)
+
+
 def ws(
     task_id: str = typer.Argument(..., help="Task UUID"),
     server: str = typer.Option("http://localhost:8000", "--server", "-s"),
@@ -142,3 +175,65 @@ def ws(
             typer.echo(json.dumps(event))
 
     asyncio.run(_watch())
+
+
+def transcribe_stream(
+    audio_file: str = typer.Argument(..., help="Audio file path (.wav, .mp3, …)"),
+    language: str = typer.Option(
+        None, "--language", "-l", help="Language code (auto-detect if not set)"
+    ),
+    chunk_seconds: float = typer.Option(
+        0.0, "--chunk-seconds", "-c", help="Split audio into N-second chunks (0 = send whole file)"
+    ),
+    server: str = typer.Option("http://localhost:8000", "--server", "-s"),
+):
+    """Streaming speech-to-text — send audio chunks over WebSocket and receive
+    transcription in real time.
+
+    Each audio chunk is sent as a binary WebSocket frame; the server replies
+    with JSON progress/result events.  The connection stays open across chunks.
+    """
+    from pathlib import Path
+
+    from aideo_cli.client import AideoClient
+
+    audio_path = Path(audio_file).resolve()
+    if not audio_path.exists():
+        typer.echo(f"Error: file not found: {audio_path}", err=True)
+        raise typer.Exit(code=1)
+
+    # Read the entire file; detect WAV parameters if applicable
+    audio_bytes = audio_path.read_bytes()
+    chunks: list[bytes]
+
+    if chunk_seconds > 0:
+        # Try to parse WAV header for split points
+        try:
+            import wave
+
+            with wave.open(str(audio_path), "rb") as wf:
+                sample_rate = wf.getframerate()
+                sample_width = wf.getsampwidth()
+                n_channels = wf.getnchannels()
+                bytes_per_second = sample_rate * sample_width * n_channels
+                chunk_size = int(bytes_per_second * chunk_seconds)
+
+            if chunk_size <= 0:
+                chunk_size = len(audio_bytes)
+
+            chunks = [
+                audio_bytes[i : i + chunk_size]
+                for i in range(0, len(audio_bytes), chunk_size)
+            ]
+        except Exception:
+            # Not a WAV file — send whole file as one chunk
+            chunks = [audio_bytes]
+    else:
+        chunks = [audio_bytes]
+
+    async def _stream():
+        client = AideoClient(server=server)
+        async for event in client.stream_transcribe(chunks):
+            typer.echo(json.dumps(event))
+
+    asyncio.run(_stream())

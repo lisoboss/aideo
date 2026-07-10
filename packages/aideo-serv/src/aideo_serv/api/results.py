@@ -7,7 +7,7 @@ from aideo_serv.dependencies import get_task_service
 from aideo_serv.models.task import TaskStatus
 from aideo_serv.services.task_service import TaskService
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 results_router = APIRouter(prefix="/results", tags=["results"])
 
@@ -23,7 +23,15 @@ async def download_result(
     except LookupError:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if task.status != TaskStatus.COMPLETED or not task.result_path:
+    if task.status != TaskStatus.COMPLETED:
+        raise HTTPException(status_code=404, detail="Result not available")
+
+    # Inline result data (e.g. speech-to-text transcription) — return as JSON
+    if task.result_data:
+        return JSONResponse(content=task.result_data)
+
+    # File-based result (e.g. generated video)
+    if not task.result_path:
         raise HTTPException(status_code=404, detail="Result not available")
 
     path = Path(task.result_path)

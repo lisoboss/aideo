@@ -1,22 +1,111 @@
 """Task CRUD REST endpoints."""
 
+import asyncio
+import logging
 from uuid import UUID
 
-from aideo_serv.dependencies import get_task_service
-from aideo_serv.models.task import TaskCreate
+from aideo_serv.config import Settings
+from aideo_serv.dependencies import get_inference_client, get_inference_manager, get_task_service
+from aideo_serv.models.events import InferenceMessage
+from aideo_serv.models.task import TaskCreate, TaskStatus
 from aideo_serv.services.task_service import TaskService
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
 tasks_router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+# ---- callback model (kept for backward compat / cloud inference) -----------
+
+class CallbackPayload(BaseModel):
+    """Payload received from the inference service via HTTP callback."""
+
+    type: str  # progress | completed | error
+    task_id: UUID
+    data: dict
+
+
+# ---- service-type resolution ----------------------------------------------
+
+_SERVICE_FOR_TASK_TYPE: dict[str, str] = {
+    "video_generation": "aideo-runtime",
+    "speech_to_text": "aideo-runtime",
+    "text_conversation": "aideo-runtime",
+    "image_to_text": "aideo-runtime",
+}
+
+
+def _resolve_service(task_type: str | None) -> str:
+    """Map a task_type to the inference service_type that handles it."""
+    return _SERVICE_FOR_TASK_TYPE.get(task_type or "video_generation", "ltx2")
+
+
+# ---- orchestration helper --------------------------------------------------
+
+async def _submit_to_inference(
+    task_id: UUID,
+    prompt: str,
+    params: dict | None,
+    task_type: str = "video_generation",
+    input_files: list[dict] | None = None,
+) -> None:
+    """Transition task through RUNNING → GENERATING, then dispatch via WebSocket."""
+    svc = get_task_service()
+    mgr = get_inference_manager()
+    settings = Settings()
+
+    service_type = _resolve_service(task_type)
+
+    # Check if the inference service is connected
+    if not mgr.is_connected(service_type):
+        logger.warning(
+            "Inference service '%s' not connected, failing task %s", service_type, task_id
+        )
+        svc.fail(task_id, f"Inference service '{service_type}' is not connected")
+        return
+
+    try:
+        svc.update_status(task_id, TaskStatus.RUNNING.value)
+        svc.update_status(task_id, TaskStatus.GENERATING.value)
+
+        msg = InferenceMessage(
+            type="task_submit",
+            task_id=str(task_id),
+            task_type=task_type,
+            data={
+                "prompt": prompt,
+                "params": params or {},
+                "model_root": settings.model_root,
+                "output_root": settings.output_root,
+                "input_root": settings.input_root,
+                "input_files": input_files or [],
+            },
+        )
+        await mgr.send_to_service(service_type, msg)
+    except Exception as exc:
+        logger.exception("Failed to submit task %s to inference", task_id)
+        svc.fail(task_id, str(exc))
+
+
+# ---- REST endpoints ----------------------------------------------------
 
 @tasks_router.post("", status_code=201)
 async def create_task(
     payload: TaskCreate,
     svc: TaskService = Depends(get_task_service),
 ):
-    """Submit a new video generation task."""
-    task = svc.create(prompt=payload.prompt, params=payload.params)
+    """Submit a new generation task (video, speech-to-text, …)."""
+    task = svc.create(
+        prompt=payload.prompt,
+        params=payload.params,
+        task_type=payload.task_type,
+        input_files=payload.input_files,
+    )
+    asyncio.create_task(
+        _submit_to_inference(
+            task.id, task.prompt, task.params, task.task_type, task.input_files,
+        )
+    )
     return task
 
 
@@ -48,10 +137,28 @@ async def cancel_task(
     task_id: UUID,
     svc: TaskService = Depends(get_task_service),
 ):
-    """Cancel a task."""
+    """Cancel a task. Forwards cancellation to inference service if generating."""
     try:
-        return svc.cancel(task_id)
+        task = svc.get(task_id)
     except LookupError:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    # Forward to inference service via WebSocket if currently generating
+    if task.status == TaskStatus.GENERATING:
+        mgr = get_inference_manager()
+        service_type = _resolve_service(task.task_type)
+        try:
+            msg = InferenceMessage(
+                type="task_cancel",
+                task_id=str(task_id),
+            )
+            await mgr.send_to_service(service_type, msg)
+        except Exception:
+            logger.warning(
+                "Failed to forward cancel to inference for task %s", task_id
+            )
+
+    try:
+        return svc.cancel(task_id)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))

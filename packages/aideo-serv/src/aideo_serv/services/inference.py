@@ -18,9 +18,17 @@ class InferenceClient:
         prompt: str,
         params: dict | None = None,
         callback_url: str = "",
+        model_root: str = "",
+        output_root: str = "",
+        input_root: str = "",
     ) -> None:
-        """Submit a generation task to the inference service."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        """Submit a generation task to the inference service.
+
+        The inference service returns 202 immediately and reports
+        progress asynchronously via callbacks, so we only need a
+        short timeout for the initial HTTP handshake.
+        """
+        async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{self.base_url}/generate",
                 json={
@@ -28,9 +36,23 @@ class InferenceClient:
                     "prompt": prompt,
                     "params": params or {},
                     "callback_url": callback_url,
+                    "model_root": model_root,
+                    "output_root": output_root,
+                    "input_root": input_root,
                 },
             )
             response.raise_for_status()
+
+    async def cancel(self, task_id: UUID) -> bool:
+        """Cancel a running generation on the inference service."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/cancel/{task_id}"
+                )
+                return response.status_code == 200
+        except httpx.HTTPError:
+            return False
 
     async def health_check(self) -> bool:
         """Check if the inference service is reachable and healthy."""

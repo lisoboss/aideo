@@ -19,7 +19,11 @@ _VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.CANCELLED,
         TaskStatus.FAILED,
     },
-    TaskStatus.GENERATING: {TaskStatus.COMPLETED, TaskStatus.FAILED},
+    TaskStatus.GENERATING: {
+        TaskStatus.COMPLETED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,
+    },
 }
 
 _TERMINAL: set[TaskStatus] = {
@@ -36,13 +40,23 @@ class TaskService:
         """Initialize with empty in-memory task store."""
         self._tasks: dict[UUID, Task] = {}
 
-    def create(self, prompt: str, params: dict[str, Any] | None = None) -> Task:
+    def create(
+        self,
+        prompt: str,
+        params: dict[str, Any] | None = None,
+        task_type: str = "video_generation",
+        project_id: UUID | None = None,
+        input_files: list[dict] | None = None,
+    ) -> Task:
         """Create a new task in QUEUED state."""
         now = datetime.now(timezone.utc)
         task = Task(
             id=uuid4(),
             prompt=prompt,
             params=params,
+            task_type=task_type,
+            project_id=project_id,
+            input_files=input_files,
             status=TaskStatus.QUEUED,
             progress=0.0,
             created_at=now,
@@ -84,15 +98,19 @@ class TaskService:
         status = TaskStatus(new_status)
         return self._transition(task, status)
 
-    def update_progress(self, task_id: UUID, progress: float) -> Task:
-        """Update generation progress (0.0–100.0)."""
+    def update_progress(
+        self, task_id: UUID, progress: float, message: str = ""
+    ) -> Task:
+        """Update generation progress (0.0–100.0) with optional stage message."""
         if not (0.0 <= progress <= 100.0):
             raise ValueError(f"Progress must be 0-100, got {progress}")
         task = self.get(task_id)
         task.progress = progress
         task.updated_at = datetime.now(timezone.utc)
         self._tasks[task.id] = task
-        self._broadcast(task.id, "progress", {"progress": progress})
+        self._broadcast(
+            task.id, "progress", {"progress": progress, "message": message}
+        )
         return task
 
     def add_preview(self, task_id: UUID, preview_url: str) -> Task:
@@ -104,8 +122,12 @@ class TaskService:
         self._broadcast(task.id, "preview", {"url": preview_url})
         return task
 
-    def complete(self, task_id: UUID, result_path: str) -> Task:
-        """Mark a task as completed with the result video path."""
+    def complete(self, task_id: UUID, result_path: str, result_data: dict | None = None) -> Task:
+        """Mark a task as completed with the result video path and optional inline data.
+
+        Inline ``result_data`` is used by providers (e.g. whisper) that return
+        results directly rather than writing files to disk.
+        """
         task = self.get(task_id)
         if task.status != TaskStatus.GENERATING:
             raise ValueError(
@@ -115,6 +137,7 @@ class TaskService:
         task = self._transition(task, TaskStatus.COMPLETED)
         task.result_path = result_path
         task.result_url = f"/api/v1/results/{task.id}/download"
+        task.result_data = result_data
         task.progress = 100.0
         task.updated_at = datetime.now(timezone.utc)
         self._tasks[task.id] = task

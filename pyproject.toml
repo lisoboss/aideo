@@ -1,6 +1,10 @@
 [tool.uv.workspace]
-members = ["packages/*"]
-exclude = ["packages/aideo-ipad"]
+members = [
+    "packages/*",
+]
+exclude = [
+    "packages/aideo-ipad",
+]
 
 [tool.uv.sources]
 aideo-serv = { workspace = true }

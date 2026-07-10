@@ -28,7 +28,7 @@
 - `main.py` — typer app definition
 - `__init__.py` — exports `main` (console_script entry point)
 
-## aideo-inference (`packages/aideo-inference/src/ltx2_service/`)
+## ltx2-service (`packages/ltx2-service/src/ltx2_service/`)
 
 - `server.py` — FastAPI server: `POST /generate`, `GET /health`
 - `model.py` — `LTX2Model` stub (simulated 10-step progress, placeholder bytes)

@@ -70,10 +70,12 @@ class TestGetTaskEndpoint:
 
 
 class TestCancelTaskEndpoint:
-    def test_cancel_task(self, client):
-        create_resp = client.post("/api/v1/tasks", json={"prompt": "cancel me"})
-        task_id = create_resp.json()["id"]
-        response = client.delete(f"/api/v1/tasks/{task_id}")
+    def test_cancel_task(self, client, task_service):
+        # Create directly via service to keep task in QUEUED state
+        # (API endpoint triggers background inference submission which
+        # races ahead and transitions the task past the cancellable states).
+        task = task_service.create(prompt="cancel me")
+        response = client.delete(f"/api/v1/tasks/{task.id}")
         assert response.status_code == 200
         assert response.json()["status"] == "cancelled"
 

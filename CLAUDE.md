@@ -6,7 +6,7 @@ Aideo — AI Video Generator Studio. uv workspace monorepo.
 
 - **packages/aideo-serv** — FastAPI backend (Python 3.12+)
 - **packages/aideo-cli** — Typer CLI client
-- **packages/aideo-inference** — LTX-2 inference service (`ltx2-service`)
+- **packages/aideo-runtime** — aggregated local inference runtime (T2V, STT, LLM, vision)
 - **packages/aideo-ipad** — iPad client (excluded from workspace, not Python)
 
 ## Quick Commands
