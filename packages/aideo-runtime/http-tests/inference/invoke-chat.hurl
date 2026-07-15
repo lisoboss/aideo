@@ -17,5 +17,5 @@ HTTP 200
 [Asserts]
 header "content-type" contains "text/event-stream"
 body contains "event: delta"
-body contains "data: {\"delta\":\"demo response\"}"
+body contains "\"delta\":\"demo response\""
 body contains "event: done"

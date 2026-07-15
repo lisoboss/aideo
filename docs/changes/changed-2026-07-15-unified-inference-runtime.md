@@ -22,6 +22,7 @@
 - Simplified configuration to a comma-separated `AIDEO_RUNTIME_PROVIDERS` list with dynamically loaded Provider modules.
 - Added normalized request inference parameters and Provider-declared output/context limits.
 - Implemented OpenAI Responses, ComfyUI workflow, and LTX async-job protocol models with offline adapter tests.
+- Relaxed the Hurl SSE delta assertion so optional event metadata does not make the contract test brittle.
 
 ### 验证
 
