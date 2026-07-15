@@ -11,3 +11,9 @@ wheels/
 
 # MacOS files
 .DS_Store
+
+# Local Hurl variable files
+packages/aideo-runtime/http-tests/.*.env
+
+# Local Runtime configuration
+packages/aideo-runtime/.env
