@@ -64,6 +64,6 @@ def models() -> list[ModelInfo]:
     return list(_MODELS)
 
 
-def create_backend() -> DemoBackend:
+def create_backend(*_: object) -> DemoBackend:
     """Create the demo provider's backend instance."""
     return DemoBackend()

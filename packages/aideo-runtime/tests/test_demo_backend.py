@@ -1,6 +1,6 @@
 """Tests for the deterministic local demo backend."""
 
-from aideo_runtime.backend.providers.demo import create_backend, models
+from aideo_runtime.backend.providers.demo import create_backend
 from aideo_runtime.capabilities import Capability
 from aideo_runtime.models import (
     BackendRequest,
@@ -12,7 +12,6 @@ from aideo_runtime.models import (
 
 async def test_demo_backend_returns_stable_response_and_stream() -> None:
     """Demo chat requests should return stable JSON and SSE-compatible events."""
-    model = models()[0]
     backend = create_backend()
     request = BackendRequest(Capability.CHAT, "demo-chat", {"messages": []})
 

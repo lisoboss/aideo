@@ -1,11 +1,14 @@
 """HTTP and SSE contract tests for the Runtime service."""
 
+from pathlib import Path
+
 from aideo_runtime.app import create_app
 from aideo_runtime.config import RuntimeSettings
+from aideo_runtime.paths import PathSettings
 from fastapi.testclient import TestClient
 
 
-def make_client() -> TestClient:
+def make_client(tmp_path: Path) -> TestClient:
     """Create a configured Runtime application client."""
     return TestClient(
         create_app(
@@ -13,23 +16,30 @@ def make_client() -> TestClient:
                 host="127.0.0.1",
                 port=9090,
                 providers=["demo"],
+                paths=PathSettings(
+                    tmp_path / "models",
+                    tmp_path / "input",
+                    tmp_path / "output",
+                ),
             )
         )
     )
 
 
-def test_runtime_discovery_and_health() -> None:
+def test_runtime_discovery_and_health(tmp_path: Path) -> None:
     """Health and discovery endpoints should expose the registered demo model."""
-    client = make_client()
+    client = make_client(tmp_path)
 
     assert client.get("/health").json() == {"status": "ok", "models": 1}
     assert client.get("/api/v1/chat").json()["models"][0]["id"] == "demo-chat"
     assert client.get("/api/v1").json()["capabilities"] == ["chat"]
 
 
-def test_runtime_invokes_json_and_sse_and_returns_contract_errors() -> None:
+def test_runtime_invokes_json_and_sse_and_returns_contract_errors(
+    tmp_path: Path,
+) -> None:
     """The invoke endpoint should return response modes and stable errors."""
-    client = make_client()
+    client = make_client(tmp_path)
     payload = {
         "capability": "chat",
         "model": "demo-chat",

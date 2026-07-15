@@ -1,0 +1,35 @@
+[project]
+name = "aideo-models"
+version = "0.1.0"
+description = "Aideo — local model implementations for inference runtimes"
+readme = "README.md"
+authors = [
+    { name = "lisoboss", email = "37949544+lisoboss@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "faster-whisper2 ; sys_platform == 'linux'",
+    "ltx-core[xformers] ; sys_platform == 'linux'",
+    "ltx-pipelines ; sys_platform == 'linux'",
+    "nvidia-cublas>=13.1.1.3 ; sys_platform == 'linux'",
+    "nvidia-cudnn-cu13>=9.20.0.48 ; sys_platform == 'linux'",
+    "safetensors>=0.8.0 ; sys_platform == 'linux'",
+    "torch>=2.13.0 ; sys_platform == 'linux'",
+    "torchaudio>=2.11.0 ; sys_platform == 'linux'",
+    "torchvision>=0.28.0 ; sys_platform == 'linux'",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.24,<0.12"]
+build-backend = "uv_build"
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu130"
+
+[tool.uv.sources]
+faster-whisper2 = { git = "https://github.com/lisoboss/faster-whisper2.git" }
+ltx-pipelines = { git = "https://github.com/lisoboss/LTX-2.git", subdirectory = "packages/ltx-pipelines", rev = "dev" }
+ltx-core = { git = "https://github.com/lisoboss/LTX-2.git", subdirectory = "packages/ltx-core", rev = "dev" }
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }

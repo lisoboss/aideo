@@ -21,7 +21,7 @@ image/audio video modes remain outside the current adapter scope.
 ## HTTP Runtime
 
 The HTTP Runtime exposes health, model discovery, JSON invocation, and SSE streaming.
-Its MVP uses environment configuration and a deterministic `demo` provider:
+It uses environment configuration and a deterministic `demo` provider by default:
 
 ```bash
 cp .env.example .env
@@ -30,6 +30,34 @@ uv run --package aideo-runtime aideo-runtime
 ```
 
 Run contract tests with `make -C http-tests`; see [http-tests/README.md](http-tests/README.md).
+
+## Local GPU providers
+
+On Linux, add `ltx2` and/or `faster_whisper2` to `AIDEO_RUNTIME_PROVIDERS`.
+Their heavyweight implementation and CUDA dependencies live in the workspace
+package `aideo-models`; Runtime Providers remain thin capability and SSE
+adapters. The model packages are Linux-only and loaded only when their Backend
+handles its first request, so model discovery and the demo HTTP service remain
+usable on development machines without CUDA.
+
+All local providers use the same ComfyUI-style path roots:
+
+| Environment variable | Purpose |
+| --- | --- |
+| `AIDEO_RUNTIME_MODELS_DIR` | Model checkpoints and downloaded Whisper models |
+| `AIDEO_RUNTIME_INPUT_DIR` | Request input files, such as `audio_path` for ASR |
+| `AIDEO_RUNTIME_OUTPUT_DIR` | Generated files; returned as `runtime://output/<path>` |
+
+The Runtime accepts only relative paths below those roots. For example, place an
+audio file at `data/input/recordings/sample.wav`, then submit
+`{"input": {"audio_path": "recordings/sample.wav"}}` to the
+`faster-whisper2` ASR model. LTX returns an output URI such as
+`runtime://output/videos/dog.mp4` for a relative request filename of
+`videos/dog.mp4`.
+
+The complete relative model-path configuration for LTX and the Whisper device
+configuration are documented in [.env.example](.env.example). Do not configure
+provider-specific model, input, or output roots.
 
 Provider modules declare fixed `context_length` and `max_tokens` capabilities.
 Requests set generation controls through `parameters`, including

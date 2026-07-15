@@ -1,7 +1,10 @@
 """Environment-backed Runtime configuration."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from aideo_runtime.paths import PathSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -11,6 +14,11 @@ class RuntimeSettings:
     host: str
     port: int
     providers: list[str]
+    paths: PathSettings = field(
+        default_factory=lambda: PathSettings(
+            Path("./models"), Path("./data/input"), Path("./data/output")
+        )
+    )
 
     @classmethod
     def from_env(cls) -> "RuntimeSettings":
@@ -23,4 +31,9 @@ class RuntimeSettings:
             host=os.environ.get("AIDEO_RUNTIME_HOST", "127.0.0.1"),
             port=int(os.environ.get("AIDEO_RUNTIME_PORT", "9090")),
             providers=providers,
+            paths=PathSettings(
+                Path(os.environ.get("AIDEO_RUNTIME_MODELS_DIR", "./models")),
+                Path(os.environ.get("AIDEO_RUNTIME_INPUT_DIR", "./data/input")),
+                Path(os.environ.get("AIDEO_RUNTIME_OUTPUT_DIR", "./data/output")),
+            ),
         )

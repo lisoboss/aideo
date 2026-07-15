@@ -44,7 +44,12 @@ class HttpTransport:
     ) -> None:
         """Initialize the transport, optionally accepting an owned client."""
         self._owns_client = client is None
-        self._client = client or httpx.AsyncClient(timeout=timeout, limits=limits)
+        if client is not None:
+            self._client = client
+        elif limits is None:
+            self._client = httpx.AsyncClient(timeout=timeout)
+        else:
+            self._client = httpx.AsyncClient(timeout=timeout, limits=limits)
 
     async def send(self, request: HttpRequest) -> HttpResponse:
         """Send a request and return its buffered response."""

@@ -13,7 +13,7 @@ def create_app(settings: RuntimeSettings | None = None) -> FastAPI:
     registry = ModelRegistry()
     for provider_name in runtime_settings.providers:
         provider = load_provider(provider_name)
-        backend = provider.create_backend()
+        backend = provider.create_backend(runtime_settings.paths)
         for model in provider.models():
             registry.register(model, backend)
     app = FastAPI(title="Aideo Runtime", version="0.1.0")
