@@ -26,7 +26,7 @@ class FasterWhisper2Model:
         self._model: Any | None = None
         self._device = os.environ.get("WHISPER_DEVICE", "cuda")
         self._compute_type = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
-        self._model_name = os.environ.get("WHISPER_MODEL", "large-v3")
+        self._model_name = os.environ.get("WHISPER_MODEL", "whisper/large-v3")
 
     async def transcribe(self, request: TranscriptionRequest) -> TranscriptionResult:
         """Transcribe audio at a path already validated by Runtime."""
@@ -53,15 +53,29 @@ class FasterWhisper2Model:
             return self._model_factory(device=device, compute_type=compute_type)
         whisper_module = import_module("faster_whisper2")
         whisper_model = getattr(whisper_module, "WhisperModel")
-        model_path = self._model_name
-        if "/" in model_path or "\\" in model_path:
-            model_path = str(self._models_dir / model_path)
+        model_path = self._local_model_path()
         return whisper_model(
-            model_path,
+            str(model_path),
             device=device,
             compute_type=compute_type,
-            download_root=str(self._models_dir / "whisper"),
         )
+
+    def _local_model_path(self) -> Path:
+        """Resolve the configured local checkpoint below the model root."""
+        configured_path = Path(self._model_name)
+        if configured_path.is_absolute():
+            raise ValueError("WHISPER_MODEL must be relative to the global model root")
+        model_root = self._models_dir.resolve()
+        model_path = (model_root / configured_path).resolve()
+        try:
+            model_path.relative_to(model_root)
+        except ValueError as error:
+            raise ValueError(
+                "WHISPER_MODEL must be relative to the global model root"
+            ) from error
+        if not model_path.is_dir():
+            raise FileNotFoundError(f"Local Whisper model not found: {model_path}")
+        return model_path
 
     def _execution_config(self) -> tuple[str, str]:
         """Select CUDA when available and safely fall back to CPU int8."""

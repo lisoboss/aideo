@@ -7,12 +7,12 @@ RUNTIME_HOST="${AIDEO_RUNTIME_HOST:-0.0.0.0}"
 RUNTIME_PORT="${AIDEO_RUNTIME_PORT:-9090}"
 RUNTIME_PROVIDERS="${AIDEO_RUNTIME_PROVIDERS:-demo,faster_whisper2,ltx2}"
 RUNTIME_DEBUG="${AIDEO_RUNTIME_DEBUG:-false}"
-MODELS_DIR="${AIDEO_RUNTIME_MODELS_DIR:-./models}"
+MODELS_DIR="${AIDEO_RUNTIME_MODELS_DIR:-${AIDEO_MODEL_ROOT:-./models}}"
 INPUT_DIR="${AIDEO_RUNTIME_INPUT_DIR:-./data/input}"
 OUTPUT_DIR="${AIDEO_RUNTIME_OUTPUT_DIR:-./data/output}"
 
 # ---- provider: faster-whisper2 --------------------------------------------
-WHISPER_MODEL="${WHISPER_MODEL:-large-v3}"
+WHISPER_MODEL="${WHISPER_MODEL:-whisper/large-v3}"
 WHISPER_DEVICE="${WHISPER_DEVICE:-cuda}"
 WHISPER_COMPUTE_TYPE="${WHISPER_COMPUTE_TYPE:-float16}"
 
@@ -62,6 +62,10 @@ if provider_enabled "ltx2"; then
   require_model_path "LTX2_DISTILLED_CHECKPOINT" "$LTX2_DISTILLED_CHECKPOINT"
   require_model_path "LTX2_GEMMA_ROOT" "$LTX2_GEMMA_ROOT"
   require_model_path "LTX2_SPATIAL_UPSAMPLER" "$LTX2_SPATIAL_UPSAMPLER"
+fi
+if provider_enabled "faster_whisper2"; then
+  require_model_path "WHISPER_MODEL" "$WHISPER_MODEL"
+  [[ -d "$MODELS_DIR/$WHISPER_MODEL" ]] || die "WHISPER_MODEL must be a local model directory"
 fi
 
 # ---- startup --------------------------------------------------------------

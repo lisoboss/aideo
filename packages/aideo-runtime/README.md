@@ -58,7 +58,9 @@ All local providers use the same ComfyUI-style path roots:
 The Runtime accepts only relative paths below those roots. For example, place an
 audio file at `data/input/recordings/sample.wav`, then submit
 `{"input": {"audio_path": "recordings/sample.wav"}}` to the
-`faster-whisper2` ASR model. LTX returns an output URI such as
+`faster-whisper2` ASR model. Configure `WHISPER_MODEL=whisper/large-v3` to
+load the local directory `models/whisper/large-v3`; the setting must be a
+relative path below `AIDEO_RUNTIME_MODELS_DIR`. LTX returns an output URI such as
 `runtime://output/videos/dog.mp4` for a relative request filename of
 `videos/dog.mp4`.
 

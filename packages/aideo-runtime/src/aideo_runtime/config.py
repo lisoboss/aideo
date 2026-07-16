@@ -34,7 +34,12 @@ class RuntimeSettings:
             providers=providers,
             debug=_bool_env("AIDEO_RUNTIME_DEBUG"),
             paths=PathSettings(
-                Path(os.environ.get("AIDEO_RUNTIME_MODELS_DIR", "./models")),
+                Path(
+                    os.environ.get(
+                        "AIDEO_RUNTIME_MODELS_DIR",
+                        os.environ.get("AIDEO_MODEL_ROOT", "./models"),
+                    )
+                ),
                 Path(os.environ.get("AIDEO_RUNTIME_INPUT_DIR", "./data/input")),
                 Path(os.environ.get("AIDEO_RUNTIME_OUTPUT_DIR", "./data/output")),
             ),

@@ -73,9 +73,37 @@ def test_whisper_model_imports_the_faster_whisper2_module(
 
     monkeypatch.setenv("WHISPER_DEVICE", "cpu")
     monkeypatch.setattr(whisper_module, "import_module", import_fake)
-    model = FasterWhisper2Model(tmp_path / "models")
+    models_dir = tmp_path / "models"
+    local_model = models_dir / "whisper" / "large-v3"
+    local_model.mkdir(parents=True)
+    model = FasterWhisper2Model(models_dir)
 
     model._build_model()
 
     assert imported == ["faster_whisper2"]
+    assert received["model"] == str(local_model)
     assert received["device"] == "cpu"
+
+
+@pytest.mark.parametrize("model_path", ["../outside", "/absolute/model"])
+def test_whisper_model_rejects_paths_outside_the_model_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    model_path: str,
+) -> None:
+    """The Whisper checkpoint must remain below the shared model root."""
+    monkeypatch.setenv("WHISPER_MODEL", model_path)
+
+    with pytest.raises(ValueError, match="global model root"):
+        FasterWhisper2Model(tmp_path / "models")._local_model_path()
+
+
+def test_whisper_model_requires_an_existing_local_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ASR provider should not download a missing checkpoint at runtime."""
+    monkeypatch.setenv("WHISPER_MODEL", "whisper/missing")
+
+    with pytest.raises(FileNotFoundError, match="Local Whisper model not found"):
+        FasterWhisper2Model(tmp_path / "models")._local_model_path()
