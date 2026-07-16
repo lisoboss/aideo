@@ -22,6 +22,14 @@
 - Runtime 新增 workspace 依赖 `aideo-models`，移除本地模型和 GPU 依赖。
 - `sse-starlette` 最低版本升级到 `3.4.5`；`websockets` 保持属于 Runtime 传输层。
 
+## Linux 启动脚本
+
+- `interface.sh` 现在检查 `uv`、创建 Runtime models/input/output 根目录、转发 debug
+  配置，并在启用 LTX2 时校验所需模型资源。
+- `http-server.sh` 现在检查 `uv` 与 `curl`、创建服务数据目录，并在启动前确认
+  `AIDEO_INFERENCE_URL/health` 可访问。
+- 两个脚本统一输出启动信息；AI API Key 始终只显示是否已设置。
+
 ## 验证
 
 - `uv sync --all-packages`：通过。
@@ -29,6 +37,7 @@
 - `uv run mypy packages/aideo-models/src packages/aideo-runtime/src`：通过。
 - `uv run pytest packages/aideo-models/tests packages/aideo-runtime/tests`：37 项通过。
 - Runtime debug 配置、JSON traceback 与 SSE error traceback 测试：通过。
+- `bash -n interface.sh http-server.sh` 与两项隔离 shell 启动脚本测试：通过。
 - LTX2 与 Faster-Whisper2 的实际推理仍需 Linux CUDA 与本地模型文件；mock 测试覆盖跨平台导入、路径边界、CPU 回退、适配与输出契约。
 
 ## 涉及文件总览
@@ -71,6 +80,15 @@ aideo/
 │           ├── test_faster_whisper2_provider.py
 │           ├── test_ltx2_provider.py
 │           └── test_runtime_config.py
+├── interface.sh
+├── http-server.sh
+├── tests/
+│   ├── test_http_server_script.sh
+│   └── test_interface_script.sh
+├── specs/feat-startup-script-hardening/
+│   ├── plan.md
+│   ├── spec.md
+│   └── tasks.md
 ├── specs/feat-aideo-models-extraction/
 │   ├── plan.md
 │   ├── spec.md
