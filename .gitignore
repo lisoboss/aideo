@@ -17,3 +17,6 @@ packages/aideo-runtime/http-tests/.*.env
 
 # Local Runtime configuration
 packages/aideo-runtime/.env
+
+# 
+models
