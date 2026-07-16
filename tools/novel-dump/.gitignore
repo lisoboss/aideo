@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+
+# 本地数据与导出内容
+books/*
+!books/.gitignore
+data/*
+!data/.gitignore
+*.part

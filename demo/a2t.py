@@ -13,7 +13,10 @@ model = WhisperModel(model_size_or_path, device=device, compute_type=compute_typ
 
 segments, info = model.transcribe(file_path, beam_size=5)
 
-print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
+print(
+    "Detected language '%s' with probability %f"
+    % (info.language, info.language_probability)
+)
 
 for segment in segments:
-    print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))       
+    print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))

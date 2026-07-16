@@ -131,10 +131,16 @@ def download(
 
 def transcribe(
     audio_file: str = typer.Argument(..., help="Audio file path to transcribe"),
-    language: str = typer.Option(None, "--language", "-l", help="Language code (auto-detect if not set)"),
+    language: str = typer.Option(
+        None, "--language", "-l", help="Language code (auto-detect if not set)"
+    ),
     beam_size: int = typer.Option(5, "--beam-size", help="Beam search width"),
-    word_timestamps: bool = typer.Option(True, "--word-timestamps/--no-word-timestamps"),
-    vad_filter: bool = typer.Option(False, "--vad/--no-vad", help="Voice activity detection filter"),
+    word_timestamps: bool = typer.Option(
+        True, "--word-timestamps/--no-word-timestamps"
+    ),
+    vad_filter: bool = typer.Option(
+        False, "--vad/--no-vad", help="Voice activity detection filter"
+    ),
     fmt: str = typer.Option("json", "--format", "-f", help="Output format: table|json"),
     server: str = typer.Option("http://localhost:8000", "--server", "-s"),
 ):
@@ -154,11 +160,13 @@ def transcribe(
         "word_timestamps": word_timestamps,
         "vad_filter": vad_filter,
     }
-    task = _run(client.transcribe(
-        audio_path=str(audio_path),
-        language=language,
-        params=params,
-    ))
+    task = _run(
+        client.transcribe(
+            audio_path=str(audio_path),
+            language=language,
+            params=params,
+        )
+    )
     _print_output(task, fmt)
 
 
@@ -183,7 +191,10 @@ def transcribe_stream(
         None, "--language", "-l", help="Language code (auto-detect if not set)"
     ),
     chunk_seconds: float = typer.Option(
-        0.0, "--chunk-seconds", "-c", help="Split audio into N-second chunks (0 = send whole file)"
+        0.0,
+        "--chunk-seconds",
+        "-c",
+        help="Split audio into N-second chunks (0 = send whole file)",
     ),
     server: str = typer.Option("http://localhost:8000", "--server", "-s"),
 ):

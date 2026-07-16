@@ -90,17 +90,13 @@ class AideoClient:
         """
         ws_url = self.server.replace("http", "ws")
         try:
-            async with websockets.connect(
-                f"{ws_url}/api/v1/ws/tasks/{task_id}"
-            ) as ws:
+            async with websockets.connect(f"{ws_url}/api/v1/ws/tasks/{task_id}") as ws:
                 async for message in ws:
                     yield json.loads(message)
         except websockets.exceptions.ConnectionClosed:
             pass  # Server closed the connection — exit gracefully
 
-    async def stream_transcribe(
-        self, audio_chunks
-    ):
+    async def stream_transcribe(self, audio_chunks):
         """Stream audio chunks for real-time speech-to-text transcription.
 
         Parameters
@@ -121,9 +117,7 @@ class AideoClient:
         """
         ws_url = self.server.replace("http", "ws")
         try:
-            async with websockets.connect(
-                f"{ws_url}/api/v1/ws/transcribe"
-            ) as ws:
+            async with websockets.connect(f"{ws_url}/api/v1/ws/transcribe") as ws:
                 for chunk in audio_chunks:
                     if isinstance(chunk, str):
                         chunk = chunk.encode()

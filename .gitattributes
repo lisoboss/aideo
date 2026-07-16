@@ -1,0 +1,2 @@
+# Normalize repository text files to Unix LF line endings.
+* text=auto eol=lf

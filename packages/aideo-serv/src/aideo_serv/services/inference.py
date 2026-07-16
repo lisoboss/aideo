@@ -47,9 +47,7 @@ class InferenceClient:
         """Cancel a running generation on the inference service."""
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/cancel/{task_id}"
-                )
+                response = await client.post(f"{self.base_url}/cancel/{task_id}")
                 return response.status_code == 200
         except httpx.HTTPError:
             return False

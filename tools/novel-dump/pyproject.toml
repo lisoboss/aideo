@@ -1,0 +1,19 @@
+[project]
+name = "novel-dump"
+version = "0.2.0"
+description = "通过浏览器用户脚本将起点章节保存到本地"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.136.0",
+    "uvicorn>=0.44.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
