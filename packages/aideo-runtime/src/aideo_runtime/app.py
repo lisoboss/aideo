@@ -1,5 +1,6 @@
 """FastAPI application factory for the Runtime service."""
 
+import logging
 from traceback import format_exception
 
 from aideo_runtime.api import router
@@ -8,6 +9,8 @@ from aideo_runtime.config import RuntimeSettings
 from aideo_runtime.registry import ModelRegistry
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger("uvicorn.error")
 
 
 def create_app(settings: RuntimeSettings | None = None) -> FastAPI:
@@ -25,17 +28,25 @@ def create_app(settings: RuntimeSettings | None = None) -> FastAPI:
     )
     app.state.registry = registry
     app.state.debug = runtime_settings.debug
-    if runtime_settings.debug:
-        app.add_exception_handler(Exception, _debug_exception_response)
+    app.add_exception_handler(Exception, _runtime_exception_response)
     app.include_router(router)
     return app
 
 
-async def _debug_exception_response(
-    _: Request,
+async def _runtime_exception_response(
+    request: Request,
     error: Exception,
 ) -> JSONResponse:
-    """Return an exception traceback for development-only Runtime debugging."""
+    """Log request failures and expose tracebacks only in debug mode."""
+    logger.exception(
+        "Inference request failed: method=%s path=%s",
+        request.method,
+        request.url.path,
+    )
+    if not request.app.state.debug:
+        return JSONResponse(
+            status_code=500, content={"detail": "Internal Server Error"}
+        )
     return JSONResponse(
         status_code=500,
         content={

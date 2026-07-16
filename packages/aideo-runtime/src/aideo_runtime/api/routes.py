@@ -1,6 +1,7 @@
 """FastAPI routes for the unified Runtime HTTP/SSE contract."""
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import asdict
 from traceback import format_exception
@@ -11,6 +12,7 @@ from aideo_runtime.models import (
     BackendEvent,
     BackendRequest,
     BackendResponse,
+    DoneEvent,
     ErrorEvent,
     InferenceParameters,
 )
@@ -20,6 +22,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
 
 
 def _registry(request: Request) -> ModelRegistry:
@@ -33,14 +36,38 @@ def _event_name(event: BackendEvent) -> str:
 
 
 async def _sse(
-    events: AsyncIterator[BackendEvent], *, debug: bool
+    events: AsyncIterator[BackendEvent],
+    *,
+    debug: bool,
+    capability: Capability,
+    model: str,
 ) -> AsyncIterator[str]:
     """Encode normalized backend events as SSE frames."""
     try:
         async for event in events:
+            if isinstance(event, ErrorEvent):
+                logger.error(
+                    "Inference request failed: capability=%s model=%s "
+                    "code=%s message=%s",
+                    capability.value,
+                    model,
+                    event.code,
+                    event.message,
+                )
+            elif isinstance(event, DoneEvent):
+                logger.info(
+                    "Inference request completed: capability=%s model=%s",
+                    capability.value,
+                    model,
+                )
             encoded = json.dumps(jsonable_encoder(asdict(event)), separators=(",", ":"))
             yield f"event: {_event_name(event)}\ndata: {encoded}\n\n"
     except Exception as error:
+        logger.exception(
+            "Inference stream failed: capability=%s model=%s",
+            capability.value,
+            model,
+        )
         details = (
             {
                 "exception": type(error).__name__,
@@ -127,10 +154,26 @@ async def invoke(
         stream=bool(payload.get("stream", False)),
     )
     backend = registry.get_backend(model)
+    logger.info(
+        "Inference request started: capability=%s model=%s stream=%s",
+        capability.value,
+        model,
+        backend_request.stream,
+    )
     if not backend_request.stream:
         response: BackendResponse = await backend.invoke(backend_request)
+        logger.info(
+            "Inference request completed: capability=%s model=%s",
+            capability.value,
+            model,
+        )
         return JSONResponse(jsonable_encoder(asdict(response)))
     return StreamingResponse(
-        _sse(backend.stream(backend_request), debug=request.app.state.debug),
+        _sse(
+            backend.stream(backend_request),
+            debug=request.app.state.debug,
+            capability=capability,
+            model=model,
+        ),
         media_type="text/event-stream",
     )

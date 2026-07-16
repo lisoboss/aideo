@@ -1,13 +1,14 @@
 """HTTP and SSE contract tests for the Runtime service."""
 
+import logging
 from pathlib import Path
 
+import pytest
 from aideo_runtime.app import create_app
 from aideo_runtime.backend.providers.demo import DemoBackend
 from aideo_runtime.config import RuntimeSettings
 from aideo_runtime.paths import PathSettings
 from fastapi.testclient import TestClient
-import pytest
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -92,8 +93,9 @@ def test_runtime_invokes_json_and_sse_and_returns_contract_errors(
 def test_debug_mode_returns_tracebacks_for_json_and_sse_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Debug mode should expose backend exceptions in both response modes."""
+    """Debug mode should expose and log backend exceptions in both response modes."""
 
     async def fail(*_: object) -> object:
         """Raise a stable backend error for the debug contract."""
@@ -107,6 +109,7 @@ def test_debug_mode_returns_tracebacks_for_json_and_sse_errors(
 
     monkeypatch.setattr(DemoBackend, "invoke", fail)
     monkeypatch.setattr(DemoBackend, "stream", fail_stream)
+    caplog.set_level(logging.ERROR, logger="uvicorn.error")
     client = TestClient(
         create_app(
             RuntimeSettings(
@@ -136,3 +139,5 @@ def test_debug_mode_returns_tracebacks_for_json_and_sse_errors(
     assert response.json()["traceback"]
     assert "debug inference failure" in stream.text
     assert "traceback" in stream.text
+    assert "Inference request failed" in caplog.text
+    assert "Inference stream failed" in caplog.text
