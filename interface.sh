@@ -2,21 +2,25 @@
 set -euo pipefail
 
 # ---- aideo-runtime — aggregated local inference service -------------------
-MODEL_ROOT="${AIDEO_MODEL_ROOT:-/mnt/g/AI/models}"
-OUTPUT_ROOT="${AIDEO_OUTPUT_ROOT:-./data/output}"
-INPUT_ROOT="${AIDEO_INPUT_ROOT:-./data/input}"
-DEVICE="${AIDEO_DEVICE:-cuda}"
+RUNTIME_HOST="${AIDEO_RUNTIME_HOST:-0.0.0.0}"
+RUNTIME_PORT="${AIDEO_RUNTIME_PORT:-9090}"
+RUNTIME_PROVIDERS="${AIDEO_RUNTIME_PROVIDERS:-demo,faster_whisper2,ltx2}"
+MODELS_DIR="${AIDEO_RUNTIME_MODELS_DIR:-./models}"
+INPUT_DIR="${AIDEO_RUNTIME_INPUT_DIR:-./data/input}"
+OUTPUT_DIR="${AIDEO_RUNTIME_OUTPUT_DIR:-./data/output}"
 
-# ---- aideo-serv WebSocket connection --------------------------------------
-AIDEO_HOST="${AIDEO_SERVER_HOST:-localhost}"
-AIDEO_PORT="${AIDEO_SERVER_PORT:-8000}"
-
-# ---- optional overrides ---------------------------------------------------
-QUANTIZATION="${LTX2_QUANTIZATION:-fp8-cast}"
-OFFLOAD_MODE="${LTX2_OFFLOAD_MODE:-none}"
+# ---- provider: faster-whisper2 --------------------------------------------
 WHISPER_MODEL="${WHISPER_MODEL:-large-v3}"
 WHISPER_DEVICE="${WHISPER_DEVICE:-cuda}"
 WHISPER_COMPUTE_TYPE="${WHISPER_COMPUTE_TYPE:-float16}"
+
+# ---- provider: ltx2 -------------------------------------------------------
+LTX2_DISTILLED_CHECKPOINT="${LTX2_DISTILLED_CHECKPOINT:-LTX-2.3/ltx-2.3-22b-distilled-1.1.safetensors}"
+LTX2_GEMMA_ROOT="${LTX2_GEMMA_ROOT:-gemma-3-12b-it-qat-q4_0-unquantized}"
+LTX2_SPATIAL_UPSAMPLER="${LTX2_SPATIAL_UPSAMPLER:-LTX-2.3/ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors}"
+LTX2_DEVICE="${LTX2_DEVICE:-cuda}"
+LTX2_QUANTIZATION="${LTX2_QUANTIZATION:-fp8-cast}"
+LTX2_OFFLOAD_MODE="${LTX2_OFFLOAD_MODE:-none}"
 
 # ---- preflight checks -----------------------------------------------------
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -25,29 +29,35 @@ die() { echo -e "${RED}ERROR:${NC} $*" >&2; exit 1; }
 
 # ---- startup --------------------------------------------------------------
 echo -e "${CYAN}aideo-runtime starting …${NC}"
-echo "  model_root:  $MODEL_ROOT"
-echo "  output_root: $OUTPUT_ROOT"
-echo "  input_root:  $INPUT_ROOT"
-echo "  device:      $DEVICE"
-echo "  aideo-serv:  ws://$AIDEO_HOST:$AIDEO_PORT"
+echo "  host:        $RUNTIME_HOST:$RUNTIME_PORT"
+echo "  providers:   $RUNTIME_PROVIDERS"
+echo "  models_dir:  $MODELS_DIR"
+echo "  input_dir:   $INPUT_DIR"
+echo "  output_dir:  $OUTPUT_DIR"
 echo ""
-echo "  capabilities:"
-echo "    video_generation  (LTX-2, quantization=$QUANTIZATION, offload=$OFFLOAD_MODE)"
-echo "    speech_to_text    (faster-whisper, model=$WHISPER_MODEL, device=$WHISPER_DEVICE)"
-echo "    text_conversation  (stub)"
-echo "    image_to_text      (stub)"
+echo "  whisper:"
+echo "    model=$WHISPER_MODEL  device=$WHISPER_DEVICE  compute=$WHISPER_COMPUTE_TYPE"
+echo "  ltx2:"
+echo "    checkpoint=$LTX2_DISTILLED_CHECKPOINT"
+echo "    gemma_root=$LTX2_GEMMA_ROOT"
+echo "    upsampler=$LTX2_SPATIAL_UPSAMPLER"
+echo "    device=$LTX2_DEVICE  quantization=$LTX2_QUANTIZATION  offload=$LTX2_OFFLOAD_MODE"
 echo ""
 
 exec env \
-  AIDEO_MODEL_ROOT="$MODEL_ROOT" \
-  AIDEO_OUTPUT_ROOT="$OUTPUT_ROOT" \
-  AIDEO_INPUT_ROOT="$INPUT_ROOT" \
-  AIDEO_DEVICE="$DEVICE" \
-  AIDEO_SERVER_HOST="$AIDEO_HOST" \
-  AIDEO_SERVER_PORT="$AIDEO_PORT" \
-  LTX2_QUANTIZATION="$QUANTIZATION" \
-  LTX2_OFFLOAD_MODE="$OFFLOAD_MODE" \
+  AIDEO_RUNTIME_HOST="$RUNTIME_HOST" \
+  AIDEO_RUNTIME_PORT="$RUNTIME_PORT" \
+  AIDEO_RUNTIME_PROVIDERS="$RUNTIME_PROVIDERS" \
+  AIDEO_RUNTIME_MODELS_DIR="$MODELS_DIR" \
+  AIDEO_RUNTIME_INPUT_DIR="$INPUT_DIR" \
+  AIDEO_RUNTIME_OUTPUT_DIR="$OUTPUT_DIR" \
   WHISPER_MODEL="$WHISPER_MODEL" \
   WHISPER_DEVICE="$WHISPER_DEVICE" \
   WHISPER_COMPUTE_TYPE="$WHISPER_COMPUTE_TYPE" \
+  LTX2_DISTILLED_CHECKPOINT="$LTX2_DISTILLED_CHECKPOINT" \
+  LTX2_GEMMA_ROOT="$LTX2_GEMMA_ROOT" \
+  LTX2_SPATIAL_UPSAMPLER="$LTX2_SPATIAL_UPSAMPLER" \
+  LTX2_DEVICE="$LTX2_DEVICE" \
+  LTX2_QUANTIZATION="$LTX2_QUANTIZATION" \
+  LTX2_OFFLOAD_MODE="$LTX2_OFFLOAD_MODE" \
   uv run --package aideo-runtime aideo-runtime
