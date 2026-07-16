@@ -8,12 +8,19 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 
 FAKE_BIN="$TEMP_DIR/bin"
 CAPTURE="$TEMP_DIR/uv.env"
+CUDA_LIB_DIR="$TEMP_DIR/cuda/cublas/lib"
 mkdir -p "$FAKE_BIN"
+mkdir -p "$CUDA_LIB_DIR"
 
 cat > "$FAKE_BIN/uv" <<'EOF'
 #!/usr/bin/env bash
-printf 'debug=%s\nproviders=%s\n' \
-  "${AIDEO_RUNTIME_DEBUG:-}" "${AIDEO_RUNTIME_PROVIDERS:-}" > "$CAPTURE"
+if [[ "${1:-}" == "run" && "${2:-}" == "python" ]]; then
+  printf '%s\n' "$CUDA_LIB_DIR"
+  exit 0
+fi
+printf 'debug=%s\nproviders=%s\nld_library_path=%s\n' \
+  "${AIDEO_RUNTIME_DEBUG:-}" "${AIDEO_RUNTIME_PROVIDERS:-}" \
+  "${LD_LIBRARY_PATH:-}" > "$CAPTURE"
 EOF
 chmod +x "$FAKE_BIN/uv"
 
@@ -23,6 +30,7 @@ OUTPUT_DIR="$TEMP_DIR/output"
 
 PATH="$FAKE_BIN:$PATH" \
 CAPTURE="$CAPTURE" \
+CUDA_LIB_DIR="$CUDA_LIB_DIR" \
 AIDEO_RUNTIME_PROVIDERS="demo" \
 AIDEO_RUNTIME_DEBUG="true" \
 AIDEO_RUNTIME_MODELS_DIR="$MODELS_DIR" \
@@ -35,6 +43,7 @@ test -d "$INPUT_DIR"
 test -d "$OUTPUT_DIR"
 grep -qx 'debug=true' "$CAPTURE"
 grep -qx 'providers=demo' "$CAPTURE"
+grep -qx "ld_library_path=$CUDA_LIB_DIR:" "$CAPTURE"
 
 if PATH="$FAKE_BIN:$PATH" \
   AIDEO_RUNTIME_PROVIDERS="ltx2" \

@@ -17,6 +17,7 @@
 - 将 `tools/novel-dump` 加入根 pytest 导入路径，使提交 hook 可以收集并执行该独立工具的测试。
 - Runtime 通过 `uvicorn.error` 记录推理开始、完成、SSE 后端错误和完整异常 traceback，便于直接在服务端终端诊断模型执行失败。
 - Faster-Whisper2 仅加载 `AIDEO_RUNTIME_MODELS_DIR` 内的本地相对模型目录，默认 `whisper/large-v3`；兼容旧 `AIDEO_MODEL_ROOT` 作为模型根目录回退。
+- `interface.sh` 通过 `scripts/cuda-env-run.sh` 启动 Runtime；该脚本将虚拟环境内全部 NVIDIA 动态库目录（包括 cuBLAS 与 cuDNN）加入 `LD_LIBRARY_PATH`。
 - 将 Runtime Provider 改为薄适配层，保持模型 ID、HTTP 请求、SSE 事件和输出 URI 契约。
 - 添加 `AIDEO_RUNTIME_DEBUG`。启用时，HTTP 500 返回结构化 Python traceback，
   SSE 在流开始后发生异常时返回带 traceback 的 `error` 事件。

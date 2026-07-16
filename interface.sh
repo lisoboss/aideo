@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CUDA_ENV_RUN="$SCRIPT_DIR/scripts/cuda-env-run.sh"
+
 # ---- aideo-runtime — aggregated local inference service -------------------
 RUNTIME_HOST="${AIDEO_RUNTIME_HOST:-0.0.0.0}"
 RUNTIME_PORT="${AIDEO_RUNTIME_PORT:-9090}"
@@ -56,6 +59,7 @@ require_model_path() {
 }
 
 command -v uv >/dev/null 2>&1 || die "uv is required; install it from https://docs.astral.sh/uv/"
+[[ -f "$CUDA_ENV_RUN" ]] || die "CUDA environment launcher not found: $CUDA_ENV_RUN"
 mkdir -p "$MODELS_DIR" "$INPUT_DIR" "$OUTPUT_DIR"
 
 if provider_enabled "ltx2"; then
@@ -108,4 +112,4 @@ exec env \
   LTX2_DEVICE="$LTX2_DEVICE" \
   LTX2_QUANTIZATION="$LTX2_QUANTIZATION" \
   LTX2_OFFLOAD_MODE="$LTX2_OFFLOAD_MODE" \
-  uv run --package aideo-runtime aideo-runtime
+  bash "$CUDA_ENV_RUN" uv run --package aideo-runtime aideo-runtime
