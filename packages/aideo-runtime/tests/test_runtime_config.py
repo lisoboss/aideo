@@ -11,6 +11,7 @@ def test_settings_parse_provider_list_from_environment(
     monkeypatch.setenv("AIDEO_RUNTIME_HOST", "0.0.0.0")
     monkeypatch.setenv("AIDEO_RUNTIME_PORT", "9100")
     monkeypatch.setenv("AIDEO_RUNTIME_PROVIDERS", "demo, xxx")
+    monkeypatch.setenv("AIDEO_RUNTIME_DEBUG", "true")
     monkeypatch.setenv("AIDEO_RUNTIME_MODELS", "ignored-model")
     monkeypatch.setenv("AIDEO_RUNTIME_MODELS_DIR", "/tmp/models")
     monkeypatch.setenv("AIDEO_RUNTIME_INPUT_DIR", "/tmp/input")
@@ -21,6 +22,7 @@ def test_settings_parse_provider_list_from_environment(
     assert settings.host == "0.0.0.0"
     assert settings.port == 9100
     assert settings.providers == ["demo", "xxx"]
+    assert settings.debug is True
     assert settings.paths.models_dir.name == "models"
 
 

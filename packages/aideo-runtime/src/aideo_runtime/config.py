@@ -14,6 +14,7 @@ class RuntimeSettings:
     host: str
     port: int
     providers: list[str]
+    debug: bool = False
     paths: PathSettings = field(
         default_factory=lambda: PathSettings(
             Path("./models"), Path("./data/input"), Path("./data/output")
@@ -31,9 +32,20 @@ class RuntimeSettings:
             host=os.environ.get("AIDEO_RUNTIME_HOST", "127.0.0.1"),
             port=int(os.environ.get("AIDEO_RUNTIME_PORT", "9090")),
             providers=providers,
+            debug=_bool_env("AIDEO_RUNTIME_DEBUG"),
             paths=PathSettings(
                 Path(os.environ.get("AIDEO_RUNTIME_MODELS_DIR", "./models")),
                 Path(os.environ.get("AIDEO_RUNTIME_INPUT_DIR", "./data/input")),
                 Path(os.environ.get("AIDEO_RUNTIME_OUTPUT_DIR", "./data/output")),
             ),
         )
+
+
+def _bool_env(name: str) -> bool:
+    """Parse an optional Runtime boolean environment variable."""
+    raw_value = os.environ.get(name, "false").strip().lower()
+    if raw_value in {"1", "true", "yes", "on"}:
+        return True
+    if raw_value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")

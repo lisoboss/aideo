@@ -3,9 +3,11 @@
 from pathlib import Path
 
 from aideo_runtime.app import create_app
+from aideo_runtime.backend.providers.demo import DemoBackend
 from aideo_runtime.config import RuntimeSettings
 from aideo_runtime.paths import PathSettings
 from fastapi.testclient import TestClient
+import pytest
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -55,7 +57,6 @@ def test_runtime_invokes_json_and_sse_and_returns_contract_errors(
             "stream": True,
         },
     )
-
     assert response.status_code == 200
     assert response.json()["outputs"][0]["text"] == "demo response"
     assert stream.headers["content-type"].startswith("text/event-stream")
@@ -86,3 +87,52 @@ def test_runtime_invokes_json_and_sse_and_returns_contract_errors(
         ).status_code
         == 422
     )
+
+
+def test_debug_mode_returns_tracebacks_for_json_and_sse_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Debug mode should expose backend exceptions in both response modes."""
+
+    async def fail(*_: object) -> object:
+        """Raise a stable backend error for the debug contract."""
+        raise RuntimeError("debug inference failure")
+
+    async def fail_stream(*_: object) -> object:
+        """Raise a stable streaming error for the debug contract."""
+        if False:
+            yield None
+        raise RuntimeError("debug inference failure")
+
+    monkeypatch.setattr(DemoBackend, "invoke", fail)
+    monkeypatch.setattr(DemoBackend, "stream", fail_stream)
+    client = TestClient(
+        create_app(
+            RuntimeSettings(
+                host="127.0.0.1",
+                port=9090,
+                providers=["demo"],
+                debug=True,
+                paths=PathSettings(
+                    tmp_path / "models",
+                    tmp_path / "input",
+                    tmp_path / "output",
+                ),
+            )
+        ),
+        raise_server_exceptions=False,
+    )
+    payload = {
+        "capability": "chat",
+        "model": "demo-chat",
+        "input": {"messages": []},
+    }
+
+    response = client.post("/api/v1/chat/demo-chat", json=payload)
+    stream = client.post("/api/v1/chat/demo-chat", json={**payload, "stream": True})
+
+    assert response.status_code == 500
+    assert response.json()["traceback"]
+    assert "debug inference failure" in stream.text
+    assert "traceback" in stream.text

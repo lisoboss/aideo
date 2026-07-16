@@ -31,6 +31,13 @@ uv run --package aideo-runtime aideo-runtime
 
 Run contract tests with `make -C http-tests`; see [http-tests/README.md](http-tests/README.md).
 
+## Development debug errors
+
+Set `AIDEO_RUNTIME_DEBUG=true` only during local development to include a full
+Python traceback in HTTP 500 JSON responses and in SSE `error.details.traceback`.
+This option can disclose local paths and configuration details, so leave it
+disabled for untrusted networks and production deployments.
+
 ## Local GPU providers
 
 On Linux, add `ltx2` and/or `faster_whisper2` to `AIDEO_RUNTIME_PROVIDERS`.

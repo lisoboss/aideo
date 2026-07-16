@@ -42,6 +42,7 @@ class ErrorEvent:
     message: str
     code: str | None = None
     retryable: bool = False
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 BackendEvent: TypeAlias = DeltaEvent | ProgressEvent | LogEvent | DoneEvent | ErrorEvent

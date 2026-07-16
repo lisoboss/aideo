@@ -3,6 +3,7 @@
 import json
 from collections.abc import AsyncIterator
 from dataclasses import asdict
+from traceback import format_exception
 from typing import Any
 
 from aideo_runtime.capabilities import Capability
@@ -10,6 +11,7 @@ from aideo_runtime.models import (
     BackendEvent,
     BackendRequest,
     BackendResponse,
+    ErrorEvent,
     InferenceParameters,
 )
 from aideo_runtime.registry import ModelRegistry
@@ -30,9 +32,28 @@ def _event_name(event: BackendEvent) -> str:
     return type(event).__name__.removesuffix("Event").lower()
 
 
-async def _sse(events: AsyncIterator[BackendEvent]) -> AsyncIterator[str]:
+async def _sse(
+    events: AsyncIterator[BackendEvent], *, debug: bool
+) -> AsyncIterator[str]:
     """Encode normalized backend events as SSE frames."""
-    async for event in events:
+    try:
+        async for event in events:
+            encoded = json.dumps(jsonable_encoder(asdict(event)), separators=(",", ":"))
+            yield f"event: {_event_name(event)}\ndata: {encoded}\n\n"
+    except Exception as error:
+        details = (
+            {
+                "exception": type(error).__name__,
+                "traceback": "".join(format_exception(error)),
+            }
+            if debug
+            else {}
+        )
+        event = ErrorEvent(
+            str(error),
+            code=type(error).__name__,
+            details=details,
+        )
         encoded = json.dumps(jsonable_encoder(asdict(event)), separators=(",", ":"))
         yield f"event: {_event_name(event)}\ndata: {encoded}\n\n"
 
@@ -110,5 +131,6 @@ async def invoke(
         response: BackendResponse = await backend.invoke(backend_request)
         return JSONResponse(jsonable_encoder(asdict(response)))
     return StreamingResponse(
-        _sse(backend.stream(backend_request)), media_type="text/event-stream"
+        _sse(backend.stream(backend_request), debug=request.app.state.debug),
+        media_type="text/event-stream",
     )
