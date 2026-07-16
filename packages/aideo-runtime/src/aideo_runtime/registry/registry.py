@@ -39,3 +39,25 @@ class ModelRegistry:
         """Remove and return model metadata."""
         self._backends.pop(model_id)
         return self._models.pop(model_id)
+
+    async def preempt_local_backends(self, model_id: str) -> list[str]:
+        """Release loaded local backends other than the selected model backend.
+
+        This explicit operation frees GPU memory for heavyweight local models.
+        Online Provider backends and backends shared with ``model_id`` remain open.
+        """
+        selected_backend = self.get_backend(model_id)
+        released: list[str] = []
+        seen_backends: set[int] = set()
+        for candidate_id, backend in self._backends.items():
+            if backend is selected_backend or id(backend) in seen_backends:
+                continue
+            if self._models[candidate_id].online:
+                continue
+            closer = getattr(backend, "aclose", None)
+            if closer is None:
+                continue
+            await closer()
+            seen_backends.add(id(backend))
+            released.append(candidate_id)
+        return released

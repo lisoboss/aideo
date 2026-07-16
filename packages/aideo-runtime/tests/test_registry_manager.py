@@ -21,6 +21,7 @@ class StubBackend:
     def __init__(self, status: HealthStatus = HealthStatus.HEALTHY) -> None:
         """Set the health status returned by this backend."""
         self.status = status
+        self.closed = 0
 
     async def invoke(self, request: BackendRequest) -> BackendResponse:
         """Return an empty successful response."""
@@ -38,6 +39,10 @@ class StubBackend:
     async def models(self) -> list[ModelInfo]:
         """Return no dynamically discovered models."""
         return []
+
+    async def aclose(self) -> None:
+        """Record one lifecycle release."""
+        self.closed += 1
 
 
 def test_registry_registers_lists_and_unregisters_models() -> None:
@@ -83,6 +88,28 @@ def test_registry_gets_and_filters_models_by_capability() -> None:
     assert registry.list_models(Capability.CHAT) == [chat]
     with pytest.raises(KeyError):
         registry.get_model("missing")
+
+
+async def test_registry_preempts_other_local_backends() -> None:
+    """Explicit preemption should release only local non-target backends."""
+    registry = ModelRegistry()
+    whisper = StubBackend()
+    ltx = StubBackend()
+    remote = StubBackend()
+    registry.register(
+        ModelInfo("whisper", "local", Capability.ASR, online=False), whisper
+    )
+    registry.register(ModelInfo("ltx2", "local", Capability.VIDEO, online=False), ltx)
+    registry.register(
+        ModelInfo("remote", "openai", Capability.CHAT, online=True), remote
+    )
+
+    released = await registry.preempt_local_backends("ltx2")
+
+    assert released == ["whisper"]
+    assert whisper.closed == 1
+    assert ltx.closed == 0
+    assert remote.closed == 0
 
 
 async def test_manager_tracks_backend_health_and_lifecycle() -> None:

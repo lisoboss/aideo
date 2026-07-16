@@ -8,6 +8,7 @@ from aideo_runtime.app import create_app
 from aideo_runtime.backend.providers.demo import DemoBackend
 from aideo_runtime.config import RuntimeSettings
 from aideo_runtime.paths import PathSettings
+from aideo_runtime.registry import ModelRegistry
 from fastapi.testclient import TestClient
 
 
@@ -88,6 +89,33 @@ def test_runtime_invokes_json_and_sse_and_returns_contract_errors(
         ).status_code
         == 422
     )
+
+
+def test_runtime_preempts_local_backends_when_requested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The explicit header should invoke the registry lifecycle operation."""
+    preempted: list[str] = []
+
+    async def preempt(_: ModelRegistry, model_id: str) -> list[str]:
+        """Record the selected model without closing test backends."""
+        preempted.append(model_id)
+        return []
+
+    monkeypatch.setattr(ModelRegistry, "preempt_local_backends", preempt)
+    response = make_client(tmp_path).post(
+        "/api/v1/chat/demo-chat",
+        headers={"X-Memory-Preempt": "true"},
+        json={
+            "capability": "chat",
+            "model": "demo-chat",
+            "input": {"messages": []},
+        },
+    )
+
+    assert response.status_code == 200
+    assert preempted == ["demo-chat"]
 
 
 def test_debug_mode_returns_tracebacks_for_json_and_sse_errors(

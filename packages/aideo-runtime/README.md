@@ -64,6 +64,10 @@ relative path below `AIDEO_RUNTIME_MODELS_DIR`. LTX returns an output URI such a
 `runtime://output/videos/dog.mp4` for a relative request filename of
 `videos/dog.mp4`.
 
+For heavyweight local models, send `X-Memory-Preempt: true` to release other
+loaded local Backends before the request starts. This is useful when switching
+from Whisper to LTX2 on a constrained GPU.
+
 The complete relative model-path configuration for LTX and the Whisper device
 configuration are documented in [.env.example](.env.example). Do not configure
 provider-specific model, input, or output roots.

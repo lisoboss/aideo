@@ -22,7 +22,7 @@ WHISPER_COMPUTE_TYPE="${WHISPER_COMPUTE_TYPE:-float16}"
 # ---- provider: ltx2 -------------------------------------------------------
 LTX2_DISTILLED_CHECKPOINT="${LTX2_DISTILLED_CHECKPOINT:-LTX-2.3/ltx-2.3-22b-distilled-1.1.safetensors}"
 LTX2_GEMMA_ROOT="${LTX2_GEMMA_ROOT:-gemma-3-12b-it-qat-q4_0-unquantized}"
-LTX2_SPATIAL_UPSAMPLER="${LTX2_SPATIAL_UPSAMPLER:-LTX-2.3/ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors}"
+LTX2_SPATIAL_UPSAMPLER="${LTX2_SPATIAL_UPSAMPLER:-LTX-2.3/ltx-2.3-spatial-upscaler-x2-1.1.safetensors}"
 LTX2_DEVICE="${LTX2_DEVICE:-cuda}"
 LTX2_QUANTIZATION="${LTX2_QUANTIZATION:-fp8-cast}"
 LTX2_OFFLOAD_MODE="${LTX2_OFFLOAD_MODE:-none}"

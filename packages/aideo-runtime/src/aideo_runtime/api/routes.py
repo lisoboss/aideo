@@ -154,6 +154,19 @@ async def invoke(
         stream=bool(payload.get("stream", False)),
     )
     backend = registry.get_backend(model)
+    if request.headers.get("X-Memory-Preempt", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        released = await registry.preempt_local_backends(model)
+        logger.info(
+            "Inference memory preemption: capability=%s model=%s released=%s",
+            capability.value,
+            model,
+            released,
+        )
     logger.info(
         "Inference request started: capability=%s model=%s stream=%s",
         capability.value,
