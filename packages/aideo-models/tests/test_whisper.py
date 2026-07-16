@@ -1,7 +1,10 @@
 """Tests for the Runtime-independent Faster-Whisper2 local model."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
+import aideo_models.whisper as whisper_module
+import pytest
 from aideo_models.models import TranscriptionRequest
 from aideo_models.whisper import FasterWhisper2Model
 
@@ -50,3 +53,29 @@ async def test_whisper_model_falls_back_to_cpu_and_returns_transcript(
     assert received == {"device": "cpu", "compute_type": "int8"}
     assert result.text == "hello"
     assert result.language == "en"
+
+
+def test_whisper_model_imports_the_faster_whisper2_module(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The local package name must match the Faster-Whisper2 distribution."""
+    imported: list[str] = []
+    received: dict[str, object] = {}
+
+    def create_model(*args: object, **kwargs: object) -> FakeWhisper:
+        received.update(model=args[0], **kwargs)
+        return FakeWhisper()
+
+    def import_fake(name: str) -> object:
+        imported.append(name)
+        return SimpleNamespace(WhisperModel=create_model)
+
+    monkeypatch.setenv("WHISPER_DEVICE", "cpu")
+    monkeypatch.setattr(whisper_module, "import_module", import_fake)
+    model = FasterWhisper2Model(tmp_path / "models")
+
+    model._build_model()
+
+    assert imported == ["faster_whisper2"]
+    assert received["device"] == "cpu"

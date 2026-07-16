@@ -7,7 +7,7 @@
 
 ## CHANGES
 
-- [changed-2026-07-16-aideo-models-extraction.md](changes/changed-2026-07-16-aideo-models-extraction.md) — 提取跨平台本地模型库、升级 Runtime SSE 依赖并强化 Linux 启动脚本。
+- [changed-2026-07-16-aideo-models-extraction.md](changes/changed-2026-07-16-aideo-models-extraction.md) — 提取跨平台本地模型库、修复 Faster-Whisper2 导入、升级 Runtime SSE 依赖并强化 Linux 启动脚本。
 - [changed-2026-07-15-unified-inference-runtime.md](changes/changed-2026-07-15-unified-inference-runtime.md) — 新增统一、Provider 无关的 AI 推理运行时与 HTTP/SSE 测试。
 - [changed-2026-07-11-backend-edit-image-upscale.md](changes/changed-2026-07-11-backend-edit-image-upscale.md) — 补齐图片编辑和超分的服务端端点与运行时 provider 基础。
 - [changed-2026-07-10-aideo-v2.md](changes/changed-2026-07-10-aideo-v2.md) — 完成 Aideo v2.0 API、iPad、运行时与服务端协议重构。

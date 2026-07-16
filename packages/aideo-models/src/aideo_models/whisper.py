@@ -51,7 +51,7 @@ class FasterWhisper2Model:
         device, compute_type = self._execution_config()
         if self._model_factory is not None:
             return self._model_factory(device=device, compute_type=compute_type)
-        whisper_module = import_module("faster_whisper")
+        whisper_module = import_module("faster_whisper2")
         whisper_model = getattr(whisper_module, "WhisperModel")
         model_path = self._model_name
         if "/" in model_path or "\\" in model_path:

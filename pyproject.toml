@@ -24,6 +24,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+pythonpath = ["tools/novel-dump"]
 
 [tool.bandit]
 skips = ["B101", "B104"]
