@@ -20,8 +20,6 @@ dev = [
     "pytest>=9.1",
     "pytest-asyncio>=1.4",
     "pytest-httpx>=0.36",
-    "httpx2",
-    "mypy>=2.3.0",
 ]
 
 [tool.pytest.ini_options]
