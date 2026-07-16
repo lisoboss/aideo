@@ -9,13 +9,13 @@ CUDA_ENV_RUN="$SCRIPT_DIR/scripts/cuda-env-run.sh"
 RUNTIME_HOST="${AIDEO_RUNTIME_HOST:-0.0.0.0}"
 RUNTIME_PORT="${AIDEO_RUNTIME_PORT:-9090}"
 RUNTIME_PROVIDERS="${AIDEO_RUNTIME_PROVIDERS:-demo,faster_whisper2,ltx2}"
-RUNTIME_DEBUG="${AIDEO_RUNTIME_DEBUG:-false}"
+RUNTIME_DEBUG="${AIDEO_RUNTIME_DEBUG:-true}"
 MODELS_DIR="${AIDEO_RUNTIME_MODELS_DIR:-${AIDEO_MODEL_ROOT:-./models}}"
 INPUT_DIR="${AIDEO_RUNTIME_INPUT_DIR:-./data/input}"
 OUTPUT_DIR="${AIDEO_RUNTIME_OUTPUT_DIR:-./data/output}"
 
 # ---- provider: faster-whisper2 --------------------------------------------
-WHISPER_MODEL="${WHISPER_MODEL:-whisper/large-v3}"
+WHISPER_MODEL="${WHISPER_MODEL:-faster-whisper-large-v3}"
 WHISPER_DEVICE="${WHISPER_DEVICE:-cuda}"
 WHISPER_COMPUTE_TYPE="${WHISPER_COMPUTE_TYPE:-float16}"
 
